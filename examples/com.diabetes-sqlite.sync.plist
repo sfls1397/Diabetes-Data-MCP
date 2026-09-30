@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightscout -> SQLite sync, sole writer of ~/.diabetes-data/diabetes.sqlite.
+  Daily 5:15 AM America/Chicago (StartCalendarInterval Hour=5 Minute=15).
+  launchd fires calendar intervals in the Mac's system time zone, which must be
+  America/Chicago; TZ below only sets the sync's own date math.
+  Credentials: Keychain service diabetes-sqlite, accounts nightscout-url and
+  api-secret. Missing credentials exit 2 without touching the database.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.diabetes-sqlite.sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_REPO/sync/diabetes-sqlite-sync</string>
+    <string>sync</string>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>5</integer>
+    <key>Minute</key>
+    <integer>15</integer>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>REPLACE_HOME</string>
+    <key>TZ</key>
+    <string>America/Chicago</string>
+    <key>DIABETES_DB_PATH</key>
+    <string>REPLACE_HOME/.diabetes-data/diabetes.sqlite</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-sqlite.sync.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-sqlite.sync.err.log</string>
+</dict>
+</plist>

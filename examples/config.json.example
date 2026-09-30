@@ -1,0 +1,5 @@
+{
+  "dbPath": "/Users/petercoates/.diabetes-data/diabetes.sqlite",
+  "serverHost": "0.0.0.0",
+  "serverPort": 8424
+}
