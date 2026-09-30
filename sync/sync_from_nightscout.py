@@ -2,7 +2,7 @@
 """Sync Nightscout entries/treatments into the Mac Mini diabetes SQLite archive.
 
 Sole writer of ~/.diabetes-data/diabetes.sqlite (LaunchAgent com.diabetes-sqlite.sync,
-daily 5:15 AM America/Chicago). Diabetes Data MCP only reads this file.
+every 5 minutes via StartInterval=300). Diabetes Data MCP only reads this file.
 
 Credentials (never hardcode, print, or log the Nightscout URL or API secret):
   1. Env NIGHTSCOUT_URL + NIGHTSCOUT_API_SECRET (tests / one-off runs)

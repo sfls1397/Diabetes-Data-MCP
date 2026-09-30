@@ -2,11 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Nightscout -> SQLite sync, sole writer of ~/.diabetes-data/diabetes.sqlite.
-  Daily 5:15 AM America/Chicago (StartCalendarInterval Hour=5 Minute=15).
-  launchd fires calendar intervals in the Mac's system time zone, which must be
-  America/Chicago; TZ below only sets the sync's own date math.
-  Credentials: Keychain service diabetes-sqlite, accounts nightscout-url and
-  api-secret. Missing credentials exit 2 without touching the database.
+  Every 5 minutes (StartInterval=300). Nightscout remains on gcns-vm; this LA
+  only pulls. Credentials: Keychain service diabetes-sqlite, accounts
+  nightscout-url and api-secret. Missing credentials exit 2 without touching
+  the database. TZ=America/Chicago for sync date math only.
 -->
 <plist version="1.0">
 <dict>
@@ -18,14 +17,9 @@
     <string>sync</string>
   </array>
   <key>RunAtLoad</key>
-  <false/>
-  <key>StartCalendarInterval</key>
-  <dict>
-    <key>Hour</key>
-    <integer>5</integer>
-    <key>Minute</key>
-    <integer>15</integer>
-  </dict>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
   <key>ProcessType</key>
   <string>Background</string>
   <key>EnvironmentVariables</key>
