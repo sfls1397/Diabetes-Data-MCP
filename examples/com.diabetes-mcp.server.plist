@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Read-only HTTP MCP server (KeepAlive). Preferred port 8424.
+  The sole writer of the archive is com.diabetes-sqlite.sync (daily 5:15 AM
+  America/Chicago). This agent never writes the database.
+  REPLACE_NODE = absolute node 22.5+ binary, REPLACE_REPO = checkout path,
+  REPLACE_HOME = home directory. examples/install-launchagents.sh fills these.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.diabetes-mcp.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_NODE</string>
+    <string>--disable-warning=ExperimentalWarning</string>
+    <string>REPLACE_REPO/bin/diabetes-data-mcp.js</string>
+    <string>serve</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>WorkingDirectory</key>
+  <string>REPLACE_HOME</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>REPLACE_HOME</string>
+    <key>TZ</key>
+    <string>America/Chicago</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-data-mcp.server.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-data-mcp.server.log</string>
+</dict>
+</plist>

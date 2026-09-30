@@ -1,0 +1,62 @@
+{
+  "name": "diabetes-data-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only Diabetes (Nightscout) SQLite MCP for Mac Mini: bearer-token Streamable HTTP (and optional stdio) over the archive written by com.diabetes-sqlite.sync",
+  "type": "module",
+  "main": "dist/cli.js",
+  "bin": {
+    "diabetes-data-mcp": "./bin/diabetes-data-mcp.js"
+  },
+  "author": "sfls1397",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sfls1397/Diabetes-Data-MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sfls1397/Diabetes-Data-MCP/issues"
+  },
+  "homepage": "https://github.com/sfls1397/Diabetes-Data-MCP#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "nightscout",
+    "diabetes",
+    "cgm",
+    "sqlite",
+    "macos"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "files": [
+    "dist/",
+    "bin/",
+    "sync/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "start": "node dist/cli.js",
+    "serve": "node dist/cli.js serve",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
