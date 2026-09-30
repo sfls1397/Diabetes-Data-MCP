@@ -8,7 +8,7 @@ Read-only MCP server for Peter's diabetes SQLite archive on the Mac Mini, plus t
 
 | Piece | What | LaunchAgent |
 | --- | --- | --- |
-| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — daily **5:15 AM America/Chicago** (`StartCalendarInterval` Hour=5 Minute=15) |
+| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **5 minutes** (`StartInterval=300`); Nightscout stays on gcns-vm |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for Claude Desktop on the Mini. | — |
 | `http-proxy <url>` | stdio → HTTP bridge for Claude Desktop on another Mac. Token in `DIABETES_DATA_MCP_TOKEN`. | — |
@@ -80,9 +80,9 @@ security add-generic-password -U -s diabetes-sqlite -a api-secret -w
 
 (`-w` last with no value prompts for it.) Missing credentials exit 2 before the database is opened or created. A Nightscout or network error exits 1; nothing from that run is committed. A second run while one is active prints `SKIP: another sync already running` (`flock` on `~/.diabetes-data/sync.lock`). Logs: `~/Library/Logs/diabetes-sqlite.sync.{out,err}.log`.
 
-`launchd` fires `StartCalendarInterval` in the Mac's system time zone, which is America/Chicago on the Mini. `TZ` in the plist only sets the sync's own date math.
+`StartInterval=300` runs every 5 minutes wall clock. `TZ=America/Chicago` in the plist sets the sync's own date math.
 
-The Grok box writer (Health's 5:15 AM routine on `/workspace/diabetes-db/diabetes.sqlite`) keeps running until the Mini sync is proven; cutover is a separate step.
+Mini is the sole Nightscout→SQLite writer. Box `/workspace/diabetes-db` is legacy/fail-closed. Dexcom Share + tconnectsync continue feeding Nightscout on gcns-vm.
 
 ## Deploy on the Mini
 

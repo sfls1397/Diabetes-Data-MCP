@@ -17,8 +17,8 @@ http://<host>:<port>/mcp`). Use that logged port in every client URL below
 when it is not 8424. Use the Mini's Bonjour name `<LocalHostName>.local`
 rather than its IP when the address can change.
 
-The archive is refreshed once a day by `com.diabetes-sqlite.sync` at 5:15 AM
-America/Chicago (`StartCalendarInterval` Hour=5 Minute=15), which pulls
+The archive is refreshed every 5 minutes by `com.diabetes-sqlite.sync`
+(`StartInterval=300`), which pulls
 Nightscout into SQLite. This package has no Nightscout tools, never writes the
 database, and never touches that agent. Call `sync_status` to see how fresh
 the archive is.
