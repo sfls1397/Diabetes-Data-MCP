@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install or refresh both Diabetes Data LaunchAgents for the current user:
 #   com.diabetes-mcp.server   read-only HTTP MCP (KeepAlive, preferred :8424)
-#   com.diabetes-sqlite.sync  Nightscout -> SQLite writer (daily 5:15 AM America/Chicago)
+#   com.diabetes-sqlite.sync  Nightscout -> SQLite writer (every 5 minutes, StartInterval=300)
 # Usage: sh examples/install-launchagents.sh [/absolute/path/to/node] [server|sync|all]
 # Secrets stay in Keychain; this script never reads or prints them.
 set -eu
