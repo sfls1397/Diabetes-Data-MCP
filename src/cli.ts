@@ -20,7 +20,7 @@ function usage(): string {
   check-config  print the resolved DB path, host, and port and exit
 
 This process never writes the diabetes database. com.diabetes-sqlite.sync
-(daily 5:15 AM America/Chicago, sync/diabetes-sqlite-sync) is the sole writer.`;
+(every minute, sync/diabetes-sqlite-sync) is the sole writer.`;
 }
 
 async function main(): Promise<void> {
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     );
   }
   // Read-only open. Do not create tables, do not call Nightscout, and do
-  // not launch or edit com.diabetes-sqlite.sync (daily 5:15 AM CT).
+  // not launch or edit com.diabetes-sqlite.sync (every minute).
   const db = openDatabaseReadOnly(config.dbPath);
 
   if (command === "stdio") {

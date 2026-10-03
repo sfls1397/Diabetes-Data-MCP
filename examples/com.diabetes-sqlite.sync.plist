@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Nightscout -> SQLite sync, sole writer of ~/.diabetes-data/diabetes.sqlite.
-  Every 5 minutes (StartInterval=300). Nightscout remains on gcns-vm; this LA
+  Every minute (StartInterval=60). Nightscout runs on this Mini (:8425); this LA
   only pulls. Credentials: Keychain service diabetes-sqlite, accounts
   nightscout-url and api-secret. Missing credentials exit 2 without touching
   the database. TZ=America/Chicago for sync date math only.
@@ -19,7 +19,7 @@
   <key>RunAtLoad</key>
   <true/>
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>60</integer>
   <key>ProcessType</key>
   <string>Background</string>
   <key>EnvironmentVariables</key>

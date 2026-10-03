@@ -11,7 +11,7 @@ Peter's diabetes data plane on the Mac Mini, as one product: **Nightscout itself
 | `nightscout/diabetes-nightscout-server` | Nightscout 15.0.7 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
 | MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
 | `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
-| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **5 minutes** (`StartInterval=300`) |
+| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **minute** (`StartInterval=60`) |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for Claude Desktop on the Mini. | — |
 | `http-proxy <url>` | stdio → HTTP bridge for Claude Desktop on another Mac. Token in `DIABETES_DATA_MCP_TOKEN`. | — |
@@ -32,7 +32,7 @@ Requires **Node.js 22.5+** (`node:sqlite`, no native addon) and macOS `/usr/bin/
 
 | Tool | Purpose |
 | --- | --- |
-| `sync_status` | `last_sync_at` / `last_sync_mode` from `meta`, hours since the last sync (`stale` after 26 h), row counts, earliest/latest SGV and treatments, daily/weekly span, `schema_version`, TIR band. URL/secret-like meta keys are hidden and URLs in values are redacted. |
+| `sync_status` | `last_sync_at` / `last_sync_mode` from `meta`, hours since the last sync (`stale` after 1 h), row counts, earliest/latest SGV and treatments, daily/weekly span, `schema_version`, TIR band. URL/secret-like meta keys are hidden and URLs in values are redacted. |
 | `list_sgv` | Readings for `date_from`..`date_to` (≤ 31 days), optional `time_from`/`time_to` slice per day (wraps midnight when from > to), `sample` (every Nth), `order`, `limit` (default 1000, max 10000). `raw_json` only with `include_raw`. |
 | `list_treatments` | Treatments for `date_from`..`date_to` (≤ 366 days): `created_at`, `local`, `event_type`, `insulin`, `carbs`, `duration_min`, `rate`, `percent`, `absolute`, `entered_by`, `notes`. Filters: `event_type` (string or list, exact, case-insensitive), `entered_by` substring. `include_raw` for combo-bolus split details. |
 | `get_daily_stats` | `daily_stats` rows by `date`, `date_from`/`date_to`, or newest `limit` (default 14). |
@@ -65,7 +65,8 @@ Same DDL as the Grok box archive (`sync/sync_from_nightscout.py` `SCHEMA_SQL`).
 
 ```bash
 sync/diabetes-sqlite-sync check    # credentials present? (no network, no DB write)
-sync/diabetes-sqlite-sync sync     # entries + treatments + rollups (LaunchAgent default)
+sync/diabetes-sqlite-sync sync     # entries + treatments + rollups (LaunchAgent default, every minute)
+sync/diabetes-sqlite-sync backfill # one-off: full history from Nightscout, dedupe box-era ids, rebuild all rollups
 sync/diabetes-sqlite-sync stats    # rebuild daily/weekly rollups only, no network
 ```
 
@@ -83,7 +84,19 @@ security add-generic-password -U -s diabetes-sqlite -a api-secret -w
 
 (`-w` last with no value prompts for it.) Missing credentials exit 2 before the database is opened or created. A Nightscout or network error exits 1; nothing from that run is committed. A second run while one is active prints `SKIP: another sync already running` (`flock` on `~/.diabetes-data/sync.lock`). Logs: `~/Library/Logs/diabetes-sqlite.sync.{out,err}.log`.
 
-`StartInterval=300` runs every 5 minutes wall clock. `TZ=America/Chicago` in the plist sets the sync's own date math.
+`StartInterval=60` runs every minute. `TZ=America/Chicago` in the plist sets the sync's own date math.
+
+A routine run asks Nightscout for the newest page of entries and treatments, stops as soon as it overlaps what is already stored, and recomputes `daily_stats` / `weekly_stats` only for the newest few days (`DIABETES_SYNC_RECOMPUTE_DAYS`, default 3). The first run of each local day recomputes everything, so a late edit to an older day is picked up within a day.
+
+### Two databases, on purpose
+
+| | Nightscout's MongoDB | `diabetes.sqlite` |
+| --- | --- | --- |
+| Role | Live working store; the Dexcom bridge and tconnectsync write to it | Uniform analytics archive the MCP reads |
+| Access | `127.0.0.1:27017`, no auth, owned by Nightscout's layout | Read-only to the MCP, Chicago-time days, TIR 80–180 rollups |
+| History | Dexcom + pump back to **2021-05-25** (treatments to 2023-01-01) | Everything Mongo has, after a backfill |
+
+The MCP never reads Mongo. `sync` keeps SQLite current each minute. `sync/diabetes-sqlite-sync backfill` walks the whole Nightscout history into SQLite (commits per page, safe to interrupt and rerun), removes box-era rows whose synthesized id now exists under the real Nightscout id (otherwise insulin would double count), and rebuilds every daily/weekly rollup. Rows deleted from Nightscout are not deleted from SQLite (upsert-only).
 
 Mini is the sole Nightscout→SQLite writer. Box `/workspace/diabetes-db` is legacy/fail-closed. The sync reads the Mini's own Nightscout: Keychain `nightscout-url` = `http://127.0.0.1:8425`.
 
