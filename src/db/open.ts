@@ -20,7 +20,7 @@ const BUSY_TIMEOUT_MS = 30_000;
  * Open the diabetes archive read-only.
  *
  * `com.diabetes-sqlite.sync` is the sole writer. Its LaunchAgent uses
- * StartCalendarInterval Hour=5 Minute=15 (daily 5:15 AM America/Chicago).
+ * StartInterval=60 (every minute).
  * This process must never CREATE, migrate, or UPDATE the archive, and must
  * never call Nightscout.
  *

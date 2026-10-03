@@ -10,7 +10,7 @@ import { callTool } from "./queries.js";
 import { TOOL_DEFINITIONS } from "./tools.js";
 
 const INSTRUCTIONS = `Diabetes Data MCP: read-only queries against the local diabetes SQLite archive (Nightscout CGM + pump treatments).
-- The sole writer is LaunchAgent com.diabetes-sqlite.sync (daily 5:15 AM America/Chicago, Nightscout -> SQLite). This server never writes the database, never calls Nightscout, and never touches that agent. Check sync_status for freshness; data newer than the last sync is not here.
+- The sole writer is LaunchAgent com.diabetes-sqlite.sync (every minute, Nightscout -> SQLite). This server never writes the database, never calls Nightscout, and never touches that agent. Check sync_status for freshness; data newer than the last sync is not here.
 - All dates and HH:MM times are America/Chicago local. Timestamps are returned as ISO UTC plus a local Chicago time.
 - Time in range is 80-180 mg/dL only (tir_80_180, under_80, over_180 in percent). Never 70-180.
 - Use get_daily_stats / get_weekly_stats for precomputed rollups, get_range_stats for any other window (overnight, meal windows, weekdays), list_sgv / list_treatments for raw rows, get_coverage for gaps, query_raw only as a last resort.

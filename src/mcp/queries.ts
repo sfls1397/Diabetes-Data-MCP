@@ -29,9 +29,9 @@ import {
 /** Product rule: time in range is 80–180 mg/dL. Never 70–180. */
 export const TIR_LOW = 80;
 export const TIR_HIGH = 180;
-export const WRITER = "com.diabetes-sqlite.sync (daily 5:15 AM America/Chicago)";
-/** A daily 5:15 sync is stale once it has missed a run by a couple of hours. */
-const STALE_AFTER_HOURS = 26;
+export const WRITER = "com.diabetes-sqlite.sync (every minute)";
+/** The sync runs every minute; an hour without one means it is stuck. */
+const STALE_AFTER_HOURS = 1;
 const CGM_SLOT_MS = 5 * 60_000;
 const DAY_MS = 86_400_000;
 
@@ -292,7 +292,7 @@ export function runSyncStatus(db: DatabaseSync, dbPath: string, now: number = Da
   const tirHigh = num(meta.tir_high);
   const warnings: string[] = [];
   if (hoursSince == null) warnings.push("meta.last_sync_at is missing or the epoch placeholder; no real sync recorded.");
-  else if (hoursSince > STALE_AFTER_HOURS) warnings.push(`Last sync was ${hoursSince}h ago (daily 5:15 AM CT sync expected).`);
+  else if (hoursSince > STALE_AFTER_HOURS) warnings.push(`Last sync was ${hoursSince}h ago (sync runs every minute).`);
   if (tirLow !== TIR_LOW || tirHigh !== TIR_HIGH) {
     warnings.push(`meta tir band is ${tirLow}-${tirHigh}; this MCP always reports 80-180.`);
   }

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Read-only HTTP MCP server (KeepAlive). Preferred port 8424.
-  The sole writer of the archive is com.diabetes-sqlite.sync (every 5 minutes
+  The sole writer of the archive is com.diabetes-sqlite.sync (every minute
   America/Chicago). This agent never writes the database.
   REPLACE_NODE = absolute node 22.5+ binary, REPLACE_REPO = checkout path,
   REPLACE_HOME = home directory. examples/install-launchagents.sh fills these.
