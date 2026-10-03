@@ -139,7 +139,7 @@ launchctl kickstart -k gui/$(id -u)/com.diabetes-nightscout.server
 
 ### tconnectsync (Tandem → Nightscout)
 
-Runs `tconnectsync --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against `http://127.0.0.1:8425`. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). Combo-bolus split fields (`splitNow`/`splitExt`/`duration`) are **not** written by stock tconnectsync.
+Runs `tconnectsync --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against `http://127.0.0.1:8425`. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). A true combo/extended bolus is written in the Care Portal shape (`insulin` = immediate U, `enteredinsulin` = total U, `splitNow`/`splitExt` %, `duration` min, `relative` extended U/h) by `tconnectsync/combo_bolus.py`, applied at run time through `tconnectsync/diabetes_tconnectsync.py`; nothing in site-packages is edited, and the hook refuses (with a loud WARNING) on any tconnectsync version other than 3.0.3. The later "Extended Bolus" completion entry is dropped so insulin is not double counted. `diabetes-tconnectsync enrich START END [--apply]` re-maps combos already in Nightscout (dry run by default; only replaces a combo whose old plain document exists, so it is safe to rerun).
 
 | Keychain service / account | What |
 | --- | --- |
