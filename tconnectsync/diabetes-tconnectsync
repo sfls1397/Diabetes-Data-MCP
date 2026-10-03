@@ -1,0 +1,27 @@
+#!/bin/sh
+# Tandem Source -> Mini Nightscout (com.diabetes-tconnectsync.sync, hourly at :35).
+# Credentials come from Keychain at run time and are never written to disk or logs:
+#   diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
+#   diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
+# Missing credentials exit 2. No args = the hourly run the VM used.
+set -eu
+HOME_DIR=${DIABETES_TCONNECTSYNC_HOME:-$HOME/.diabetes-data/tconnectsync}
+BIN=$HOME_DIR/venv/bin/tconnectsync
+test -x "$BIN" || { echo "tconnectsync missing: run tconnectsync/install.sh" >&2; exit 1; }
+
+k() { security find-generic-password -s "$1" -a "$2" -w 2>/dev/null; }
+TCONNECT_EMAIL=$(k diabetes-tconnectsync tconnect-email) &&
+TCONNECT_PASSWORD=$(k diabetes-tconnectsync tconnect-password) &&
+PUMP_SERIAL_NUMBER=$(k diabetes-tconnectsync pump-serial-number) &&
+NS_SECRET=$(k diabetes-sqlite api-secret) || {
+  echo "Keychain diabetes-tconnectsync/* or diabetes-sqlite/api-secret missing" >&2; exit 2; }
+
+export TCONNECT_EMAIL TCONNECT_PASSWORD PUMP_SERIAL_NUMBER NS_SECRET
+export NS_URL=${NS_URL:-http://127.0.0.1:8425}
+export TCONNECT_REGION=${TCONNECT_REGION:-US}
+export TIMEZONE_NAME=${TIMEZONE_NAME:-America/Chicago}
+export PYTHONWARNINGS=ignore   # urllib3 LibreSSL notice on macOS system Python
+
+[ $# -gt 0 ] || set -- --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES
+cd "$HOME_DIR"
+exec "$BIN" "$@"

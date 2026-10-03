@@ -10,6 +10,7 @@ Peter's diabetes data plane on the Mac Mini, as one product: **Nightscout itself
 | --- | --- | --- |
 | `nightscout/diabetes-nightscout-server` | Nightscout 15.0.7 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
 | MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
+| `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
 | `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **5 minutes** (`StartInterval=300`) |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for Claude Desktop on the Mini. | — |
@@ -122,6 +123,23 @@ Share allows one session per login, so two Nightscouts polling it duplicate or d
 echo BRIDGE_ENABLE=1 >> ~/.diabetes-data/nightscout/config.env
 launchctl kickstart -k gui/$(id -u)/com.diabetes-nightscout.server
 ```
+
+### tconnectsync (Tandem → Nightscout)
+
+Runs `tconnectsync --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against `http://127.0.0.1:8425`. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). Combo-bolus split fields (`splitNow`/`splitExt`/`duration`) are **not** written by stock tconnectsync.
+
+| Keychain service / account | What |
+| --- | --- |
+| `diabetes-tconnectsync` / `tconnect-email`, `tconnect-password`, `pump-serial-number` | Tandem Source login and pump |
+| `diabetes-sqlite` / `api-secret` | Nightscout secret (shared) |
+
+```bash
+sh tconnectsync/install.sh
+tconnectsync/diabetes-tconnectsync --pretend          # dry run: reads Tandem + Nightscout, uploads nothing
+sh examples/install-launchagents.sh "$(command -v node)" tconnectsync
+```
+
+Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`.
 
 ### Install / update
 

@@ -69,3 +69,19 @@ describe("nightscout wrapper", () => {
     fs.rmSync(home, { recursive: true, force: true });
   });
 });
+
+describe("tconnectsync LaunchAgent", () => {
+  const TCS = "examples/com.diabetes-tconnectsync.sync.plist";
+  it("runs hourly at :35 from the repo wrapper, never at load", () => {
+    const xml = read(TCS);
+    expect(args(TCS)).toEqual(["REPLACE_REPO/tconnectsync/diabetes-tconnectsync"]);
+    expect(xml).toMatch(/<key>StartCalendarInterval<\/key>\s*<dict>\s*<key>Minute<\/key>\s*<integer>35<\/integer>\s*<\/dict>/);
+    expect(xml).not.toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/);
+  });
+
+  it("keeps Tandem and Nightscout secrets out of the plist and wrapper", () => {
+    for (const f of [TCS, "tconnectsync/diabetes-tconnectsync"]) {
+      expect(read(f)).not.toMatch(/^\s*(export\s+)?(TCONNECT_PASSWORD|NS_SECRET)=["']?[^$"'\s(]/m);
+    }
+  });
+});
