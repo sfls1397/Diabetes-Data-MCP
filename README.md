@@ -1,6 +1,6 @@
 # Diabetes Data MCP
 
-Read-only MCP server for Peter's diabetes SQLite archive on the Mac Mini, plus the Nightscout → SQLite sync that writes it. The same 8 tools are available to Grok Bot (Local Execution / Mini Shell), Claude Desktop, ChatGPT, and any other MCP client.
+Peter's diabetes data plane on the Mac Mini, as one product: **Nightscout itself** (moved off GCP `gcns-vm`, home network only), the Nightscout → SQLite sync, and a read-only MCP server over that SQLite archive. The same 8 tools are available to Grok Bot (Local Execution / Mini Shell), Claude Desktop, ChatGPT, and any other MCP client.
 
 **This package is not published to npm.** `package.json` sets `"private": true`. Deploy is a git checkout on the Mini: merge `main` → `git pull` → `npm install && npm run build` → restart the LaunchAgents.
 
@@ -8,14 +8,17 @@ Read-only MCP server for Peter's diabetes SQLite archive on the Mac Mini, plus t
 
 | Piece | What | LaunchAgent |
 | --- | --- | --- |
-| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **5 minutes** (`StartInterval=300`); Nightscout stays on gcns-vm |
+| `nightscout/diabetes-nightscout-server` | Nightscout 15.0.7 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
+| MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
+| `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
+| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **5 minutes** (`StartInterval=300`) |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for Claude Desktop on the Mini. | — |
 | `http-proxy <url>` | stdio → HTTP bridge for Claude Desktop on another Mac. Token in `DIABETES_DATA_MCP_TOKEN`. | — |
 | `http-token` | Print the Keychain bearer token (creates it on first use). | — |
 | `check-config` | Print the resolved DB path, host, and preferred port. Binds nothing. | — |
 
-Ports on the Mini: ResMed 8420, Apple Tools 8421, Network Tools 8422, SimpleFIN 8423, **Diabetes 8424**. If 8424 is taken, `serve` binds the next free port above it and logs `preferred port 8424 is in use; listening on http://<host>:<port>/mcp`. Point clients at the logged URL.
+Ports on the Mini: ResMed 8420, Apple Tools 8421, Network Tools 8422, SimpleFIN 8423, **Diabetes MCP 8424**, **Diabetes Nightscout 8425**. If 8424 is taken, `serve` binds the next free port above it and logs `preferred port 8424 is in use; listening on http://<host>:<port>/mcp`. Point clients at the logged URL.
 
 Requires **Node.js 22.5+** (`node:sqlite`, no native addon) and macOS `/usr/bin/python3` (3.9+) for the sync.
 
@@ -82,7 +85,86 @@ security add-generic-password -U -s diabetes-sqlite -a api-secret -w
 
 `StartInterval=300` runs every 5 minutes wall clock. `TZ=America/Chicago` in the plist sets the sync's own date math.
 
-Mini is the sole Nightscout→SQLite writer. Box `/workspace/diabetes-db` is legacy/fail-closed. Dexcom Share + tconnectsync continue feeding Nightscout on gcns-vm.
+Mini is the sole Nightscout→SQLite writer. Box `/workspace/diabetes-db` is legacy/fail-closed. The sync reads the Mini's own Nightscout: Keychain `nightscout-url` = `http://127.0.0.1:8425`.
+
+## Nightscout on the Mini
+
+```
+Dexcom Share ──(bridge, outbound)──┐
+Tandem Source ──(tconnectsync)─────┴─► Nightscout :8425 ─► MongoDB 127.0.0.1:27017
+                                            └─► com.diabetes-sqlite.sync ─► SQLite ─► MCP :8424
+```
+
+Upstream [cgm-remote-monitor](https://github.com/nightscout/cgm-remote-monitor) 15.0.7, downloaded and pinned, not forked or vendored (AGPL-3.0). **Home network only:** no public URL, port-forward, tunnel, or DNS (`nsrange.mooo.com` retired with `gcns-vm`). Dexcom and Tandem are outbound pulls; nothing on the internet connects in.
+
+Who connects:
+- Grok Bot agents: Local Execution on the Mini → `http://127.0.0.1:8425`, like the other Mini services.
+- Devices at home: `http://<LocalHostName>.local:8425`.
+
+Every request needs the site API secret (`AUTH_DEFAULT_ROLES=denied`); without it the API returns 401. Don't port-forward 8425 or 27017.
+
+### Secrets (Keychain only)
+
+| Service / account | What |
+| --- | --- |
+| `diabetes-sqlite` / `api-secret` | Plaintext site `API_SECRET`. Nightscout reads it at launch; the sync and `nightscout/prove.sh` send its SHA-1. One item, so they can't drift. |
+| `diabetes-nightscout` / `dexcom-username`, `dexcom-password` | Dexcom Share login. Read only when `BRIDGE_ENABLE=1`. |
+
+```bash
+security add-generic-password -U -s diabetes-nightscout -a dexcom-username -w
+security add-generic-password -U -s diabetes-nightscout -a dexcom-password -w
+```
+
+### Dexcom Share: one poller only
+
+Share allows one session per login, so two Nightscouts polling it duplicate or drop readings. The bridge is off by default. Turn it on only after every other Nightscout's bridge is off:
+
+```bash
+echo BRIDGE_ENABLE=1 >> ~/.diabetes-data/nightscout/config.env
+launchctl kickstart -k gui/$(id -u)/com.diabetes-nightscout.server
+```
+
+### tconnectsync (Tandem → Nightscout)
+
+Runs `tconnectsync --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against `http://127.0.0.1:8425`. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). Combo-bolus split fields (`splitNow`/`splitExt`/`duration`) are **not** written by stock tconnectsync.
+
+| Keychain service / account | What |
+| --- | --- |
+| `diabetes-tconnectsync` / `tconnect-email`, `tconnect-password`, `pump-serial-number` | Tandem Source login and pump |
+| `diabetes-sqlite` / `api-secret` | Nightscout secret (shared) |
+
+```bash
+sh tconnectsync/install.sh
+tconnectsync/diabetes-tconnectsync --pretend          # dry run: reads Tandem + Nightscout, uploads nothing
+sh examples/install-launchagents.sh "$(command -v node)" tconnectsync
+```
+
+Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`.
+
+### Install / update
+
+```bash
+cd ~/code/Diabetes-Data-MCP
+sh nightscout/install-runtime.sh "$(command -v node)"                        # Mongo + tools (sha256-pinned), Nightscout tag + npm ci
+sh examples/install-launchagents.sh "$(command -v node)" nightscout          # mongod + server agents
+sh nightscout/prove.sh                                                       # read-only: bind, 401/200, newest SGV, counts
+```
+
+Optional non-secret overrides: `~/.diabetes-data/nightscout/config.env` (see `nightscout/config.env.example`). Upgrading Nightscout = bump `NS_TAG` in `nightscout/install-runtime.sh`, rerun it, kickstart the server; the old version stays under `runtime/` for rollback.
+
+| Path | What |
+| --- | --- |
+| `~/.diabetes-data/nightscout/mongo/` | MongoDB data |
+| `~/.diabetes-data/nightscout/runtime/` | mongod, Database Tools, Nightscout checkout, cached downloads |
+| `~/Library/Logs/diabetes-nightscout.{server,mongod}.log` | Logs |
+
+Backup / restore (archives hold health data; `*.archive.gz` is git-ignored):
+
+```bash
+R=~/.diabetes-data/nightscout/runtime/mongotools/bin
+$R/mongodump --host 127.0.0.1 --port 27017 --db Nightscout --gzip --archive=nightscout-$(date +%Y%m%d-%H%M).archive.gz
+$R/mongorestore --host 127.0.0.1 --port 27017 --gzip --archive=<file> --nsInclude='Nightscout.*' --drop
+```
 
 ## Deploy on the Mini
 
