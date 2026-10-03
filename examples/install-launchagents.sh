@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install or refresh Diabetes Data LaunchAgents for the current user:
 #   com.diabetes-mcp.server          read-only HTTP MCP (KeepAlive, preferred :8424)
-#   com.diabetes-sqlite.sync         Nightscout -> SQLite writer (every 5 minutes, StartInterval=300)
+#   com.diabetes-sqlite.sync         Nightscout -> SQLite writer (every minute, StartInterval=60)
 #   com.diabetes-nightscout.mongod   MongoDB for Nightscout, 127.0.0.1:27017 only (KeepAlive)
 #   com.diabetes-nightscout.server   Nightscout on the home LAN, :8425 (KeepAlive)
 #   com.diabetes-tconnectsync.sync   Tandem Source -> Nightscout, hourly at :35

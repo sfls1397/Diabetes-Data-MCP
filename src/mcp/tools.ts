@@ -17,7 +17,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "sync_status",
     description:
-      "Archive freshness and coverage: last_sync_at / last_sync_mode from meta, hours since the last sync (stale after 26h), row counts per table, earliest/latest SGV and treatment timestamps, daily/weekly stats span, schema_version, and the TIR band (80–180). Call this first when freshness matters; the sync runs daily at 5:15 AM America/Chicago.",
+      "Archive freshness and coverage: last_sync_at / last_sync_mode from meta, hours since the last sync (stale after 1h), row counts per table, earliest/latest SGV and treatment timestamps, daily/weekly stats span, schema_version, and the TIR band (80–180). Call this first when freshness matters; the sync runs daily at 5:15 AM America/Chicago.",
     inputSchema: { type: "object", properties: {} },
     annotations: readOnly
   },

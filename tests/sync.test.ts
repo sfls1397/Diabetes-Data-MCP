@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { openDatabaseReadOnly } from "../src/db/open.js";
+import { openDatabaseForFixture, openDatabaseReadOnly } from "../src/db/open.js";
 import { callTool } from "../src/mcp/queries.js";
 import { FIXTURE_TREATMENTS, fixtureSgv } from "./fixture.js";
 
@@ -71,9 +71,10 @@ beforeAll(async () => {
       const lt = bracket != null ? Number(bracket) : find ? (JSON.parse(find).date.$lt as number) : Infinity;
       body = entries.filter((e) => e.date < lt).slice(0, count);
     } else if (url.pathname === "/api/v1/treatments.json") {
+      const lte = url.searchParams.get("find[created_at][$lte]");
       const bracket = url.searchParams.get("find[created_at][$lt]");
       const lt = bracket != null ? bracket : find ? (JSON.parse(find).created_at.$lt as string) : "￿";
-      body = treatments.filter((t) => t.created_at < lt).slice(0, count);
+      body = treatments.filter((t) => (lte != null ? t.created_at <= lte : t.created_at < lt)).slice(0, count);
     } else {
       res.writeHead(404);
       res.end();
@@ -172,5 +173,76 @@ describe("sync (fake Nightscout -> SQLite -> MCP)", () => {
     } finally {
       db.close();
     }
+  }, 60_000);
+});
+
+describe("backfill and incremental rollups", () => {
+  const opts = (dbPath: string, extra: Record<string, string> = {}) => ({
+    env: env(dbPath, { NIGHTSCOUT_URL: baseUrl, NIGHTSCOUT_API_SECRET: SECRET, DIABETES_SYNC_PAGE: "200", ...extra })
+  });
+
+  it("backfill restores history a routine sync never revisits, and removes synthetic-id duplicates", async () => {
+    const dbPath = tempDb();
+    await run(SYNC, ["sync"], opts(dbPath));
+
+    // Simulate the live archive: older history missing, t3 stored under a box-era synthetic id.
+    const w = openDatabaseForFixture(dbPath);
+    w.exec("DELETE FROM sgv WHERE date_ms < " + Date.parse("2025-11-02T00:00:00Z"));
+    w.exec("DELETE FROM treatments WHERE id IN ('t1','t3')");
+    w.exec(
+      "INSERT INTO treatments(id,created_at,event_type,insulin,carbs,entered_by,raw_json) VALUES " +
+        "('2025-11-01T17:30:00.000Z:Combo Bolus:3:45','2025-11-01T17:30:00.000Z','Combo Bolus',3,45,'tconnectsync','{}')," +
+        // a real-looking id Nightscout no longer has, same event as t4 (tconnectsync delete + re-post)
+        "('aaaaaaaaaaaaaaaaaaaaaaaa','2025-11-03T09:00:00-06:00','Meal Bolus',2,30,'tconnectsync','{}')," +
+        // history that only the archive has: no counterpart in Nightscout, must be kept
+        "('bbbbbbbbbbbbbbbbbbbbbbbb','2025-10-15T12:00:00.000Z','Combo Bolus',1,NULL,'tconnectsync','{}')"
+    );
+    const gaps = w.prepare("SELECT COUNT(*) AS n FROM sgv").get() as { n: number };
+    w.close();
+    expect(gaps.n).toBeLessThan(864);
+
+    // A routine sync stops at the newest stored reading, so the gap stays.
+    const routine = await run(SYNC, ["sync"], opts(dbPath));
+    const afterRoutine = openDatabaseReadOnly(dbPath);
+    expect((afterRoutine.prepare("SELECT COUNT(*) AS n FROM sgv").get() as { n: number }).n).toBeLessThan(864);
+    afterRoutine.close();
+    expect(routine.stdout).toMatch(/\(recent\)/);
+
+    const full = await run(SYNC, ["backfill"], opts(dbPath));
+    expect(full.stdout).toMatch(/stale duplicate treatments removed: 2/);
+    expect(full.stdout).toMatch(/totals: sgv=864 treatments=6/);
+    expect(full.stdout).toMatch(/daily_stats days: 3 \(full\)/);
+    expect(full.stdout + full.stderr).not.toContain(SECRET);
+
+    const db = openDatabaseReadOnly(dbPath);
+    try {
+      const ids = (db.prepare("SELECT id FROM treatments ORDER BY id").all() as { id: string }[]).map((r) => r.id);
+      expect(ids).toEqual(["bbbbbbbbbbbbbbbbbbbbbbbb", "t1", "t2", "t3", "t4", "t5"]);
+      const meta = Object.fromEntries((db.prepare("SELECT key, value FROM meta").all() as { key: string; value: string }[]).map((r) => [r.key, r.value]));
+      expect(meta.last_sync_mode).toBe("backfill");
+      expect(meta.last_backfill_at).toMatch(/Z$/);
+    } finally {
+      db.close();
+    }
+  }, 60_000);
+
+  it("recomputes only the newest days on a routine sync, and everything on recompute", async () => {
+    const dbPath = tempDb();
+    const o = opts(dbPath, { DIABETES_SYNC_RECOMPUTE_DAYS: "0" });
+    await run(SYNC, ["sync"], o); // empty daily_stats: full pass
+
+    const w = openDatabaseForFixture(dbPath);
+    w.exec("UPDATE daily_stats SET tir_80_180 = -1 WHERE day = '2025-11-01'");
+    w.close();
+
+    await run(SYNC, ["sync"], o); // same local day: recent only
+    let db = openDatabaseReadOnly(dbPath);
+    expect((db.prepare("SELECT tir_80_180 AS t FROM daily_stats WHERE day='2025-11-01'").get() as { t: number }).t).toBe(-1);
+    db.close();
+
+    await run(SYNC, ["recompute"], o);
+    db = openDatabaseReadOnly(dbPath);
+    expect((db.prepare("SELECT tir_80_180 AS t FROM daily_stats WHERE day='2025-11-01'").get() as { t: number }).t).toBeGreaterThan(0);
+    db.close();
   }, 60_000);
 });

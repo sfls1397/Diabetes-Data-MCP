@@ -2,7 +2,7 @@
 """Sync Nightscout entries/treatments into the Mac Mini diabetes SQLite archive.
 
 Sole writer of ~/.diabetes-data/diabetes.sqlite (LaunchAgent com.diabetes-sqlite.sync,
-every 5 minutes via StartInterval=300). Diabetes Data MCP only reads this file.
+every minute via StartInterval=60). Diabetes Data MCP only reads this file.
 
 Credentials (never hardcode, print, or log the Nightscout URL or API secret):
   1. Env NIGHTSCOUT_URL + NIGHTSCOUT_API_SECRET (tests / one-off runs)
@@ -238,13 +238,18 @@ def upsert_sgv(conn: sqlite3.Connection, rows: list[dict]) -> int:
     return n
 
 
+def treatment_id(r: dict) -> str:
+    tid = r.get("_id") or r.get("identifier")
+    if not tid:
+        # synthesize stable-ish id
+        tid = f"{r.get('created_at','')}:{r.get('eventType','')}:{r.get('insulin')}:{r.get('carbs')}"
+    return str(tid)
+
+
 def upsert_treatments(conn: sqlite3.Connection, rows: list[dict]) -> int:
     n = 0
     for r in rows:
-        tid = r.get("_id") or r.get("identifier")
-        if not tid:
-            # synthesize stable-ish id
-            tid = f"{r.get('created_at','')}:{r.get('eventType','')}:{r.get('insulin')}:{r.get('carbs')}"
+        tid = treatment_id(r)
         created = r.get("created_at") or r.get("timestamp") or ""
         ts = r.get("timestamp")
         if isinstance(ts, str) and ts.isdigit():
@@ -287,15 +292,19 @@ def ns_query(path: str, params: list[tuple[str, object]]) -> str:
     return f"{path}?{'&'.join(parts)}" if parts else path
 
 
-def page_entries(conn: sqlite3.Connection) -> int:
-    """Page newest-first until a page overlaps the newest SGV already stored."""
+def page_entries(conn: sqlite3.Connection, full: bool = False) -> int:
+    """Page newest-first until a page overlaps the newest SGV already stored.
+
+    full=True (backfill) walks the whole history to the oldest reading and commits
+    every page, so an interrupted backfill keeps what it already wrote.
+    """
     total = 0
     oldest_seen = None
     # Stop at the newest stored reading, not the oldest. Stopping at MIN re-walked
     # the whole archive (and, with a broken find, died on page 2 every run).
-    known_max = conn.execute("SELECT MAX(date_ms) FROM sgv").fetchone()[0]
+    known_max = None if full else conn.execute("SELECT MAX(date_ms) FROM sgv").fetchone()[0]
     safety = 0
-    while safety < 40:
+    while safety < (100_000 if full else 40):
         safety += 1
         params: list[tuple[str, object]] = [("count", PAGE)]
         if oldest_seen is not None:
@@ -312,6 +321,10 @@ def page_entries(conn: sqlite3.Connection) -> int:
                 print("entries page returned null; stopping page walk", file=sys.stderr)
             break
         total += upsert_sgv(conn, batch)
+        if full:
+            conn.commit()
+            if safety % 50 == 0:
+                print(f"  entries: {safety} pages, {total} upserts", flush=True)
         dates = [int(x["date"]) for x in batch if x.get("date") is not None]
         if not dates:
             break
@@ -326,26 +339,28 @@ def page_entries(conn: sqlite3.Connection) -> int:
     return total
 
 
-def page_treatments(conn: sqlite3.Connection) -> int:
+def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | None = None) -> int:
     """Page newest-first until a page overlaps the newest treatment already stored.
 
     A bare count= request only returns the default ~96h window, capped at PAGE.
     A backlog longer than that (tconnectsync catching up after a multi-day stall)
     is only visible by paging with bracket find[created_at][$lt], which is not
-    limited to that window. Stop at MAX(created_at) so a 5-minute run does not
+    limited to that window. Stop at MAX(created_at) so a routine run does not
     re-download history back to the oldest row.
     """
     total = 0
     oldest_seen = None
-    known_max = conn.execute(
+    known_max = None if full else conn.execute(
         "SELECT MAX(created_at) FROM treatments WHERE created_at IS NOT NULL AND created_at != ''"
     ).fetchone()[0]
     safety = 0
-    while safety < 80:
+    while safety < (100_000 if full else 80):
         safety += 1
         params: list[tuple[str, object]] = [("count", PAGE)]
         if oldest_seen is not None:
-            params.append(("find[created_at][$lt]", oldest_seen))
+            # $lte, not $lt: treatments sharing one created_at can straddle a page edge,
+            # and $lt would skip the ones that did not fit. Re-fetching the edge rows is a no-op upsert.
+            params.append(("find[created_at][$lte]", oldest_seen))
         try:
             batch = ns_get(ns_query("/api/v1/treatments.json", params))
         except Exception as e:
@@ -358,6 +373,12 @@ def page_treatments(conn: sqlite3.Connection) -> int:
                 print("treatments page returned null; stopping", file=sys.stderr)
             break
         total += upsert_treatments(conn, batch)
+        if seen is not None:
+            seen.update(treatment_id(x) for x in batch)
+        if full:
+            conn.commit()
+            if safety % 50 == 0:
+                print(f"  treatments: {safety} pages, {total} upserts", flush=True)
         createds = [x.get("created_at") for x in batch if x.get("created_at")]
         if not createds:
             break
@@ -507,11 +528,13 @@ def recompute_weekly(conn: sqlite3.Connection, week_ending: str, source: str = "
     )
 
 
-def recompute_weeks(conn: sqlite3.Connection, source: str = "SQLite") -> int:
+def recompute_weeks(conn: sqlite3.Connection, source: str = "SQLite", since: date | None = None) -> int:
     row = conn.execute("SELECT MIN(day), MAX(day) FROM daily_stats").fetchone()
     if not row or row[0] is None:
         return 0
     start = datetime.strptime(row[0], "%Y-%m-%d").date()
+    if since is not None and since > start:
+        start = since
     end = datetime.strptime(row[1], "%Y-%m-%d").date()
     # Align to first Saturday on/after start's week end
     _ws, first_end = week_bounds_for_day(start)
@@ -524,12 +547,14 @@ def recompute_weeks(conn: sqlite3.Connection, source: str = "SQLite") -> int:
     return count
 
 
-def recompute_range(conn: sqlite3.Connection, source: str = "Nightscout API") -> int:
+def recompute_range(conn: sqlite3.Connection, source: str = "Nightscout API", since: date | None = None) -> int:
     row = conn.execute("SELECT MIN(date_ms), MAX(date_ms) FROM sgv").fetchone()
     if not row or row[0] is None:
         return 0
     start = datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc).astimezone(TZ).date()
     end = datetime.fromtimestamp(row[1] / 1000, tz=timezone.utc).astimezone(TZ).date()
+    if since is not None and since > start:
+        start = since
     d = start
     count = 0
     while d <= end:
@@ -539,23 +564,65 @@ def recompute_range(conn: sqlite3.Connection, source: str = "Nightscout API") ->
     return count
 
 
-MODES = ("sync", "entries", "treatments", "stats", "recompute", "check")
+MODES = ("sync", "backfill", "entries", "treatments", "stats", "recompute", "check")
+
+# Routine runs (every minute) recompute only the newest days; a full pass runs on
+# an empty daily_stats, once per local day, and in stats/recompute/backfill.
+RECOMPUTE_DAYS = int(os.environ.get("DIABETES_SYNC_RECOMPUTE_DAYS", "3"))
+
+
+def reconcile_treatments(conn: sqlite3.Connection, seen: set) -> int:
+    """After a full Nightscout walk, drop stored treatments Nightscout no longer has
+    (box-era synthesized ids, or rows tconnectsync deleted and re-posted under a new id)
+    when the same event (created_at + eventType) is present under an id Nightscout still
+    has. Without this the old copy double counts insulin in the rollups. Rows with no
+    counterpart are kept: that history exists nowhere else."""
+    conn.execute("CREATE TEMP TABLE seen_ids(id TEXT PRIMARY KEY)")
+    conn.executemany("INSERT OR IGNORE INTO seen_ids(id) VALUES (?)", ((i,) for i in seen))
+    cur = conn.execute(
+        """DELETE FROM treatments
+           WHERE id NOT IN (SELECT id FROM seen_ids)
+             AND EXISTS (SELECT 1 FROM treatments r
+                         WHERE r.id IN (SELECT id FROM seen_ids)
+                           AND r.created_at = treatments.created_at
+                           AND r.event_type IS treatments.event_type)"""
+    )
+    n = cur.rowcount
+    conn.execute("DROP TABLE seen_ids")
+    return n
+
+
+def stats_since(conn: sqlite3.Connection) -> date | None:
+    last = conn.execute("SELECT MAX(day) FROM daily_stats").fetchone()[0]
+    today = datetime.now(TZ).date().isoformat()
+    if last is None or meta_get(conn, "last_full_recompute_day") != today:
+        return None
+    return datetime.strptime(last, "%Y-%m-%d").date() - timedelta(days=RECOMPUTE_DAYS)
 
 
 def run(mode: str) -> None:
     conn = connect()
     try:
-        if mode in ("sync", "entries"):
-            n = page_entries(conn)
+        full = mode == "backfill"
+        seen: set = set()
+        if mode in ("sync", "entries", "backfill"):
+            n = page_entries(conn, full=full)
             print(f"sgv upserts this walk: {n}")
-        if mode in ("sync", "treatments"):
-            n = page_treatments(conn)
+        if mode in ("sync", "treatments", "backfill"):
+            n = page_treatments(conn, full=full, seen=seen if full else None)
             print(f"treatment upserts this walk: {n}")
-        if mode in ("sync", "stats", "recompute"):
-            days = recompute_range(conn)
-            print(f"daily_stats days: {days}")
-            weeks = recompute_weeks(conn)
+        if full:
+            conn.commit()
+            print(f"stale duplicate treatments removed: {reconcile_treatments(conn, seen)}")
+            meta_set(conn, "last_backfill_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+        if mode in ("sync", "stats", "recompute", "backfill"):
+            since = stats_since(conn) if mode == "sync" else None
+            days = recompute_range(conn, since=since)
+            print(f"daily_stats days: {days}{' (recent)' if since else ' (full)'}")
+            weeks = recompute_weeks(conn, since=since)
             print(f"weekly_stats weeks: {weeks}")
+            if since is None:
+                meta_set(conn, "last_full_recompute_day", datetime.now(TZ).date().isoformat())
         meta_set(conn, "last_sync_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
         meta_set(conn, "last_sync_mode", mode)
         meta_set(conn, "last_sync_writer", WRITER)
@@ -574,7 +641,7 @@ def main() -> int:
         return 64
     stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     print(f"{stamp} diabetes-sqlite-sync {mode} db={DB_PATH}")
-    network = mode in ("sync", "entries", "treatments", "check")
+    network = mode in ("sync", "backfill", "entries", "treatments", "check")
     if network:
         # Fail closed before the database is opened or created.
         try:
