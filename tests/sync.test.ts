@@ -67,10 +67,12 @@ beforeAll(async () => {
     const find = url.searchParams.get("find");
     let body: unknown[] = [];
     if (url.pathname === "/api/v1/entries.json") {
-      const lt = find ? (JSON.parse(find).date.$lt as number) : Infinity;
+      const bracket = url.searchParams.get("find[date][$lt]");
+      const lt = bracket != null ? Number(bracket) : find ? (JSON.parse(find).date.$lt as number) : Infinity;
       body = entries.filter((e) => e.date < lt).slice(0, count);
     } else if (url.pathname === "/api/v1/treatments.json") {
-      const lt = find ? (JSON.parse(find).created_at.$lt as string) : "￿";
+      const bracket = url.searchParams.get("find[created_at][$lt]");
+      const lt = bracket != null ? bracket : find ? (JSON.parse(find).created_at.$lt as string) : "￿";
       body = treatments.filter((t) => t.created_at < lt).slice(0, count);
     } else {
       res.writeHead(404);
@@ -130,7 +132,7 @@ describe("sync (fake Nightscout -> SQLite -> MCP)", () => {
     const first = await run(SYNC, ["sync"], opts);
     expect(first.stdout).toMatch(/totals: sgv=864 treatments=5/);
     expect(first.stdout + first.stderr).not.toContain(SECRET);
-    expect(requests.filter((r) => r.includes("find=")).length).toBeGreaterThan(0);
+    expect(requests.filter((r) => r.includes("find[date][$lt]") || r.includes("find%5Bdate%5D")).length).toBeGreaterThan(0);
 
     const second = await run(SYNC, ["sync"], opts);
     expect(second.stdout).toMatch(/totals: sgv=864 treatments=5/);

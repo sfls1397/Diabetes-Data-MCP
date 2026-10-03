@@ -275,39 +275,51 @@ def upsert_treatments(conn: sqlite3.Connection, rows: list[dict]) -> int:
     return n
 
 
+def ns_query(path: str, params: list[tuple[str, object]]) -> str:
+    """Build a Nightscout query. Keys are literal so bracket find syntax survives.
+
+    Nightscout 15.0.7 rejects JSON `find={...}`: treatments come back as JSON null
+    (the walker used to treat that as "no more data") and entries HTTP 500.
+    Bracket params (`find[field][$lt]=`) succeed, and they also bypass the default
+    treatments window (about the last 96 hours) that a bare `count=` request uses.
+    """
+    parts = [f"{key}={urllib.parse.quote(str(value), safe='')}" for key, value in params]
+    return f"{path}?{'&'.join(parts)}" if parts else path
+
+
 def page_entries(conn: sqlite3.Connection) -> int:
-    """Page newest-first until we overlap existing data or run out."""
+    """Page newest-first until a page overlaps the newest SGV already stored."""
     total = 0
     oldest_seen = None
-    known_min = conn.execute("SELECT MIN(date_ms) FROM sgv").fetchone()[0]
-    # Always pull at least one newest page; keep going while oldest_seen > known_min (gap) or known_min is None
+    # Stop at the newest stored reading, not the oldest. Stopping at MIN re-walked
+    # the whole archive (and, with a broken find, died on page 2 every run).
+    known_max = conn.execute("SELECT MAX(date_ms) FROM sgv").fetchone()[0]
     safety = 0
     while safety < 40:
         safety += 1
-        if oldest_seen is None:
-            path = f"/api/v1/entries.json?count={PAGE}"
-        else:
-            # older than oldest_seen on this walk
-            q = urllib.parse.quote(f'{{"date":{{"$lt":{oldest_seen}}}}}')
-            path = f"/api/v1/entries.json?find={q}&count={PAGE}"
+        params: list[tuple[str, object]] = [("count", PAGE)]
+        if oldest_seen is not None:
+            params.append(("find[date][$lt]", oldest_seen))
         try:
-            batch = ns_get(path)
+            batch = ns_get(ns_query("/api/v1/entries.json", params))
         except Exception as e:
-            # find often 500s — fall back to count-only once
             if oldest_seen is not None:
                 print(f"entries find failed ({scrub(str(e))}); stopping page walk", file=sys.stderr)
                 break
             raise
         if not isinstance(batch, list) or not batch:
+            if batch is None:
+                print("entries page returned null; stopping page walk", file=sys.stderr)
             break
         total += upsert_sgv(conn, batch)
         dates = [int(x["date"]) for x in batch if x.get("date") is not None]
+        if not dates:
+            break
         batch_min = min(dates)
-        batch_max = max(dates)
-        if oldest_seen is None or batch_min < oldest_seen:
-            oldest_seen = batch_min
-        # If we already had data and this page is entirely newer-or-equal to known_min with overlap, done for incremental
-        if known_min is not None and batch_min <= known_min:
+        if oldest_seen is not None and batch_min >= oldest_seen:
+            break
+        oldest_seen = batch_min
+        if known_max is not None and batch_min <= known_max:
             break
         if len(batch) < PAGE:
             break
@@ -315,36 +327,45 @@ def page_entries(conn: sqlite3.Connection) -> int:
 
 
 def page_treatments(conn: sqlite3.Connection) -> int:
+    """Page newest-first until a page overlaps the newest treatment already stored.
+
+    A bare count= request only returns the default ~96h window, capped at PAGE.
+    A backlog longer than that (tconnectsync catching up after a multi-day stall)
+    is only visible by paging with bracket find[created_at][$lt], which is not
+    limited to that window. Stop at MAX(created_at) so a 5-minute run does not
+    re-download history back to the oldest row.
+    """
     total = 0
     oldest_seen = None
-    known_min = conn.execute(
-        "SELECT MIN(created_at) FROM treatments WHERE created_at IS NOT NULL AND created_at != ''"
+    known_max = conn.execute(
+        "SELECT MAX(created_at) FROM treatments WHERE created_at IS NOT NULL AND created_at != ''"
     ).fetchone()[0]
     safety = 0
     while safety < 80:
         safety += 1
-        if oldest_seen is None:
-            path = f"/api/v1/treatments.json?count={PAGE}"
-        else:
-            q = urllib.parse.quote(f'{{"created_at":{{"$lt":"{oldest_seen}"}}}}')
-            path = f"/api/v1/treatments.json?find={q}&count={PAGE}"
+        params: list[tuple[str, object]] = [("count", PAGE)]
+        if oldest_seen is not None:
+            params.append(("find[created_at][$lt]", oldest_seen))
         try:
-            batch = ns_get(path)
+            batch = ns_get(ns_query("/api/v1/treatments.json", params))
         except Exception as e:
             if oldest_seen is not None:
                 print(f"treatments find failed ({scrub(str(e))}); stopping", file=sys.stderr)
                 break
             raise
         if not isinstance(batch, list) or not batch:
+            if batch is None:
+                print("treatments page returned null; stopping", file=sys.stderr)
             break
         total += upsert_treatments(conn, batch)
         createds = [x.get("created_at") for x in batch if x.get("created_at")]
         if not createds:
             break
         batch_min = min(createds)
-        if oldest_seen is None or batch_min < oldest_seen:
-            oldest_seen = batch_min
-        if known_min is not None and batch_min <= known_min:
+        if oldest_seen is not None and batch_min >= oldest_seen:
+            break
+        oldest_seen = batch_min
+        if known_max is not None and batch_min <= known_max:
             break
         if len(batch) < PAGE:
             break
