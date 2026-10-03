@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nightscout on the Mini, LAN only (0.0.0.0:8425 by default). The wrapper reads
+  API_SECRET from Keychain at launch and waits for com.diabetes-nightscout.mongod.
+  Installed by examples/install-launchagents.sh (REPLACE_* filled in).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.diabetes-nightscout.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_REPO/nightscout/diabetes-nightscout-server</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>REPLACE_HOME</string>
+    <key>NODE_BIN</key>
+    <string>REPLACE_NODE</string>
+    <key>TZ</key>
+    <string>America/Chicago</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-nightscout.server.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-nightscout.server.log</string>
+</dict>
+</plist>

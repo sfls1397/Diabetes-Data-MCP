@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Private MongoDB for Diabetes Data Nightscout. Loopback only: never change bind_ip,
+  never port-forward 27017. No auth; nothing off this Mac can reach it.
+  Installed by examples/install-launchagents.sh (REPLACE_* filled in).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.diabetes-nightscout.mongod</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_HOME/.diabetes-data/nightscout/runtime/mongodb/bin/mongod</string>
+    <string>--dbpath</string>
+    <string>REPLACE_HOME/.diabetes-data/nightscout/mongo</string>
+    <string>--bind_ip</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>27017</string>
+    <string>--logpath</string>
+    <string>REPLACE_HOME/Library/Logs/diabetes-nightscout.mongod.log</string>
+    <string>--logappend</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>WorkingDirectory</key>
+  <string>REPLACE_HOME/.diabetes-data/nightscout</string>
+  <key>StandardOutPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-nightscout.mongod.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_HOME/Library/Logs/diabetes-nightscout.mongod.launchd.log</string>
+</dict>
+</plist>

@@ -1,8 +1,11 @@
 #!/bin/sh
-# Install or refresh both Diabetes Data LaunchAgents for the current user:
-#   com.diabetes-mcp.server   read-only HTTP MCP (KeepAlive, preferred :8424)
-#   com.diabetes-sqlite.sync  Nightscout -> SQLite writer (every 5 minutes, StartInterval=300)
-# Usage: sh examples/install-launchagents.sh [/absolute/path/to/node] [server|sync|all]
+# Install or refresh Diabetes Data LaunchAgents for the current user:
+#   com.diabetes-mcp.server          read-only HTTP MCP (KeepAlive, preferred :8424)
+#   com.diabetes-sqlite.sync         Nightscout -> SQLite writer (every 5 minutes, StartInterval=300)
+#   com.diabetes-nightscout.mongod   MongoDB for Nightscout, 127.0.0.1:27017 only (KeepAlive)
+#   com.diabetes-nightscout.server   Nightscout on the home LAN, :8425 (KeepAlive)
+# Usage: sh examples/install-launchagents.sh [/absolute/path/to/node] [server|sync|nightscout|all]
+#   all = server + sync. nightscout = mongod + server; run nightscout/install-runtime.sh first.
 # Secrets stay in Keychain; this script never reads or prints them.
 set -eu
 DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
@@ -10,7 +13,11 @@ REPO=$(CDPATH= cd -- "$DIR/.." && pwd)
 NODE=${1:-$(command -v node || true)}
 WHICH=${2:-all}
 test -x "$NODE" || { echo "Node 22.5+ binary not found; pass its absolute path" >&2; exit 1; }
-test -f "$REPO/dist/cli.js" || { echo "Build first: npm install && npm run build" >&2; exit 1; }
+case "$WHICH" in
+  nightscout) test -x "$HOME/.diabetes-data/nightscout/runtime/mongodb/bin/mongod" || { echo "Run nightscout/install-runtime.sh first" >&2; exit 1; }
+    mkdir -p "$HOME/.diabetes-data/nightscout/mongo" ;;
+  *) test -f "$REPO/dist/cli.js" || { echo "Build first: npm install && npm run build" >&2; exit 1; } ;;
+esac
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 
 install_one() {
@@ -27,6 +34,7 @@ install_one() {
 case "$WHICH" in
   server) install_one com.diabetes-mcp.server ;;
   sync) install_one com.diabetes-sqlite.sync ;;
+  nightscout) install_one com.diabetes-nightscout.mongod; install_one com.diabetes-nightscout.server ;;
   all) install_one com.diabetes-mcp.server; install_one com.diabetes-sqlite.sync ;;
-  *) echo "second argument must be server, sync, or all" >&2; exit 64 ;;
+  *) echo "second argument must be server, sync, nightscout, or all" >&2; exit 64 ;;
 esac

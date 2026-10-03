@@ -1,0 +1,66 @@
+#!/bin/sh
+# Nightscout on the Mini, LAN only (com.diabetes-nightscout.server).
+# API_SECRET comes from Keychain (service diabetes-sqlite, account api-secret) at
+# launch: the same plaintext site secret the Diabetes sync sends as SHA-1. It is
+# never written to disk, config, or logs. Missing secret exits 2.
+# Dexcom Share bridge stays OFF unless BRIDGE_ENABLE=1 in ~/.diabetes-data/nightscout/config.env;
+# then BRIDGE_USER_NAME / BRIDGE_PASSWORD come from Keychain service diabetes-nightscout.
+# Only one Nightscout may poll Share at a time.
+set -eu
+
+HOME_DIR=${DIABETES_NIGHTSCOUT_HOME:-$HOME/.diabetes-data/nightscout}
+RT=$HOME_DIR/runtime
+NODE=${NODE_BIN:-$(command -v node || true)}
+test -x "$NODE" || { echo "node not found; set NODE_BIN" >&2; exit 1; }
+test -f "$RT/nightscout/server.js" || { echo "runtime missing: run nightscout/install-runtime.sh" >&2; exit 1; }
+
+# Non-secret defaults. ~/.diabetes-data/nightscout/config.env (KEY=VALUE) overrides them.
+DIABETES_NIGHTSCOUT_HOST=0.0.0.0
+DIABETES_NIGHTSCOUT_PORT=8425
+MONGODB_URI=mongodb://127.0.0.1:27017/Nightscout
+BRIDGE_ENABLE=0
+BRIDGE_SERVER=US
+ENABLE="careportal food boluscalc bwp cob bgi pump openaps rawbg iob upbat cage sage basal"
+if [ -f "$HOME_DIR/config.env" ]; then
+  set -a; . "$HOME_DIR/config.env"; set +a
+fi
+
+case "$MONGODB_URI" in
+  mongodb://127.0.0.1:*|mongodb://localhost:*) ;;
+  *) echo "MONGODB_URI must point at the loopback mongod" >&2; exit 64 ;;
+esac
+
+API_SECRET=$(security find-generic-password -s diabetes-sqlite -a api-secret -w 2>/dev/null) || {
+  echo "Keychain diabetes-sqlite/api-secret missing" >&2; exit 2; }
+
+if [ "$BRIDGE_ENABLE" = 1 ]; then
+  BRIDGE_USER_NAME=$(security find-generic-password -s diabetes-nightscout -a dexcom-username -w 2>/dev/null) &&
+  BRIDGE_PASSWORD=$(security find-generic-password -s diabetes-nightscout -a dexcom-password -w 2>/dev/null) || {
+    echo "BRIDGE_ENABLE=1 but Keychain diabetes-nightscout/dexcom-username or dexcom-password missing" >&2; exit 2; }
+  export BRIDGE_USER_NAME BRIDGE_PASSWORD BRIDGE_SERVER
+  ENABLE="$ENABLE bridge"
+  echo "bridge: ON (Dexcom Share, server $BRIDGE_SERVER)"
+else
+  echo "bridge: OFF"
+fi
+
+export API_SECRET MONGODB_URI ENABLE
+export MONGO_COLLECTION=entries
+export HOSTNAME=$DIABETES_NIGHTSCOUT_HOST PORT=$DIABETES_NIGHTSCOUT_PORT
+export INSECURE_USE_HTTP=true
+export AUTH_DEFAULT_ROLES=${AUTH_DEFAULT_ROLES:-denied}
+export PUMP_FIELDS=${PUMP_FIELDS:-reservoir battery clock}
+export DEVICESTATUS_ADVANCED=${DEVICESTATUS_ADVANCED:-true}
+export THEME=${THEME:-colors}
+export DBSIZE_MAX=${DBSIZE_MAX:-15000}
+export TZ=${TZ:-America/Chicago}
+
+# Wait for com.diabetes-nightscout.mongod (up to 60 s).
+i=0
+while ! nc -z 127.0.0.1 27017 2>/dev/null; do
+  i=$((i + 1)); [ $i -ge 60 ] && { echo "mongod not listening on 127.0.0.1:27017" >&2; exit 1; }
+  sleep 1
+done
+
+cd "$RT/nightscout"
+exec "$NODE" --no-deprecation server.js
