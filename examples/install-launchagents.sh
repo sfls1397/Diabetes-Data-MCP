@@ -29,8 +29,18 @@ install_one() {
   sed -e "s#REPLACE_NODE#$NODE#g" -e "s#REPLACE_REPO#$REPO#g" -e "s#REPLACE_HOME#$HOME#g" "$DIR/$label.plist" > "$plist.tmp"
   plutil -lint "$plist.tmp" >/dev/null
   mv "$plist.tmp" "$plist"
+  # bootout returns before launchd has fully removed the job; bootstrapping too early fails
+  # with "5: Input/output error" and leaves the agent unloaded (this took mongod down once).
+  # Wait for the old job to disappear, then retry the bootstrap a few times.
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+  i=0
+  while launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i + 1)); done
+  i=0
+  until launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; do
+    i=$((i + 1))
+    [ $i -ge 5 ] && { echo "bootstrap failed for $label" >&2; exit 1; }
+    sleep 2
+  done
   echo "Loaded $label"
 }
 
