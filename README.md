@@ -2,7 +2,7 @@
 
 Peter's diabetes data plane on the Mac Mini, as one product: **Nightscout itself** (moved off GCP `gcns-vm`, home network only), the Nightscout → SQLite sync, and a read-only MCP server over that SQLite archive. The same 8 tools are available to Grok Bot (Local Execution / Mini Shell), Claude Desktop, ChatGPT, and any other MCP client.
 
-Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm install**, never a git checkout: see [Deploy on the Mini](#deploy-on-the-mini). Every command below uses `PKG="$(npm root -g)/diabetes-data-mcp"`.
+Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm install**, never a git checkout: see [Deploy on the Mini](#deploy-on-the-mini). Every command below uses `PKG=~/.local/node/lib/node_modules/diabetes-data-mcp` (the global install under the LaunchAgents' node).
 
 ## Pieces
 
@@ -183,9 +183,10 @@ $R/mongorestore --host 127.0.0.1 --port 27017 --gzip --archive=<file> --nsInclud
 The Mini runs the **published npm package**, installed globally under the `node` that the LaunchAgents use. Never point a LaunchAgent at `~/code/Diabetes-Data-MCP` or a dig worktree; the checkout is for development and tests only.
 
 ```bash
-npm install -g diabetes-data-mcp@<version>
-PKG="$(npm root -g)/diabetes-data-mcp"
-NODE="$(command -v node)"
+NODE="$HOME/.local/node/bin/node"                 # the node the LaunchAgents run (same prefix as apple-tools-mcp)
+PREFIX="$(dirname "$(dirname "$NODE")")"
+"$PREFIX/bin/npm" install -g --prefix "$PREFIX" diabetes-data-mcp@<version>
+PKG="$PREFIX/lib/node_modules/diabetes-data-mcp"
 sh "$PKG/examples/install-launchagents.sh" "$NODE" all            # com.diabetes-mcp.server + com.diabetes-sqlite.sync
 sh "$PKG/examples/install-launchagents.sh" "$NODE" nightscout     # com.diabetes-nightscout.mongod + .server
 sh "$PKG/examples/install-launchagents.sh" "$NODE" tconnectsync   # com.diabetes-tconnectsync.sync
@@ -194,7 +195,7 @@ sh "$PKG/nightscout/prove.sh"
 
 One time per machine (state lives in `~/.diabetes-data/` and survives package upgrades): `sh "$PKG/nightscout/install-runtime.sh" "$NODE"` and `sh "$PKG/tconnectsync/install.sh"`.
 
-**Releases** follow Development Team Rules → QA and npm Releases: bump the version in the PR (ask Peter for the number), merge, publish a GitHub Release `vX.Y.Z`, and `.github/workflows/npm-publish.yml` publishes via npm Trusted Publishing (OIDC, no tokens). Then on the Mini: `npm install -g diabetes-data-mcp@X.Y.Z`, rerun the three installer lines above (paths do not change, so this just reloads), and run `prove.sh`. The very first publish (1.0.0) is a one-time manual `npm publish` by Peter in a local Terminal.
+**Releases** follow Development Team Rules → QA and npm Releases: bump the version in the PR (ask Peter for the number), merge, publish a GitHub Release `vX.Y.Z`, and `.github/workflows/npm-publish.yml` publishes via npm Trusted Publishing (OIDC, no tokens). Then on the Mini: the `npm install -g --prefix` line with `@X.Y.Z`, rerun the three installer lines above (paths do not change, so this just reloads), and run `prove.sh`. The very first publish (1.0.0) is a one-time manual `npm publish` by Peter in a local Terminal.
 
 LaunchAgents do not load a login shell, so the installer writes the absolute `node` path into `com.diabetes-mcp.server` and `com.diabetes-nightscout.server`.
 
