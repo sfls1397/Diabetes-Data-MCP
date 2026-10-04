@@ -85,3 +85,11 @@ describe("tconnectsync LaunchAgent", () => {
     }
   });
 });
+
+describe("install-launchagents.sh", () => {
+  it("waits for the old job to unload and retries bootstrap (no I/O-error race)", () => {
+    const sh = read("examples/install-launchagents.sh");
+    expect(sh).toMatch(/while launchctl print "gui\/\$\(id -u\)\/\$label"/);
+    expect(sh).toMatch(/until launchctl bootstrap/);
+  });
+});
