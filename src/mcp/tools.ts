@@ -17,7 +17,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "sync_status",
     description:
-      "Archive freshness and coverage: last_sync_at / last_sync_mode from meta, hours since the last sync (stale after 1h), row counts per table, earliest/latest SGV and treatment timestamps, daily/weekly stats span, schema_version, and the TIR band (80–180). Call this first when freshness matters; the sync runs daily at 5:15 AM America/Chicago.",
+      "Archive freshness and coverage: last_sync_at / last_sync_mode from meta, hours since the last sync (stale after 1h), row counts per table, earliest/latest SGV and treatment timestamps, daily/weekly stats span, schema_version, and the TIR band (80–180). Call this first when freshness matters; the sync runs every minute.",
     inputSchema: { type: "object", properties: {} },
     annotations: readOnly
   },
@@ -44,7 +44,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "list_treatments",
     description:
-      "Nightscout/pump treatments for local days date_from..date_to, oldest first: created_at (ISO UTC), local, event_type, insulin, carbs, duration_min, rate, percent, absolute, entered_by, notes. Filter by event_type (exact, case-insensitive; e.g. Combo Bolus, Temp Basal, Basal Suspension, Basal Resume, Site Change, Sensor Start) and entered_by substring. include_raw adds raw_json (combo-bolus split details). At most 366 days.",
+      "Nightscout/pump treatments for local days date_from..date_to, oldest first: created_at (ISO UTC), local, event_type, insulin, insulin_counted, carbs, duration_min, rate, percent, absolute, entered_by, notes. insulin_counted is what the row adds to insulin totals: for a Care Portal combo bolus (immediate units in insulin, total in raw enteredinsulin) it includes the extended part unless that part has its own row. Filter by event_type (exact, case-insensitive; e.g. Combo Bolus, Temp Basal, Basal Suspension, Basal Resume, Site Change, Sensor Start) and entered_by substring. include_raw adds raw_json (combo-bolus split details). At most 366 days.",
     inputSchema: {
       type: "object",
       properties: {

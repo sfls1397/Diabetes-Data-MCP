@@ -4,8 +4,13 @@
 #   diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
 #   diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
 # Missing credentials exit 2. No args = the hourly run the VM used.
+# Runs tconnectsync through diabetes_tconnectsync.py, which applies the combo-bolus mapping
+# (tconnectsync/combo_bolus.py). `diabetes-tconnectsync enrich START END [--apply]` re-maps
+# combos already stored in Nightscout.
 set -eu
 HOME_DIR=${DIABETES_TCONNECTSYNC_HOME:-$HOME/.diabetes-data/tconnectsync}
+HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+PY=$HOME_DIR/venv/bin/python
 BIN=$HOME_DIR/venv/bin/tconnectsync
 test -x "$BIN" || { echo "tconnectsync missing: run tconnectsync/install.sh" >&2; exit 1; }
 
@@ -22,6 +27,10 @@ export TCONNECT_REGION=${TCONNECT_REGION:-US}
 export TIMEZONE_NAME=${TIMEZONE_NAME:-America/Chicago}
 export PYTHONWARNINGS=ignore   # urllib3 LibreSSL notice on macOS system Python
 
-[ $# -gt 0 ] || set -- --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES
 cd "$HOME_DIR"
-exec "$BIN" "$@"
+if [ "${1:-}" = enrich ]; then
+  shift
+  exec "$PY" "$HERE/enrich_combos.py" "$@"
+fi
+[ $# -gt 0 ] || set -- --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES
+exec "$PY" "$HERE/diabetes_tconnectsync.py" "$@"
