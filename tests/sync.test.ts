@@ -246,3 +246,49 @@ describe("backfill and incremental rollups", () => {
     db.close();
   }, 60_000);
 });
+
+describe("combo bolus insulin totals", () => {
+  it("counts the extended part of a Care Portal combo once: requested when its extended entry is gone, delivered when it exists", async () => {
+    const dbPath = tempDb();
+    const o = { env: env(dbPath, { NIGHTSCOUT_URL: baseUrl, NIGHTSCOUT_API_SECRET: SECRET, DIABETES_SYNC_PAGE: "200" }) };
+    await run(SYNC, ["sync"], o);
+
+    const w = openDatabaseForFixture(dbPath);
+    const ins = w.prepare(
+      "INSERT INTO treatments(id,created_at,event_type,insulin,entered_by,raw_json) VALUES (?,?,?,?,?,?)"
+    );
+    // 2025-11-02: combo 3.46 now of 5.64 total, 60/40 over 2 h, extended entry absent -> 3.46 + 2.256
+    ins.run("c1", "2025-11-02T18:00:00.000Z", "Combo Bolus", 3.46, "Pump (tconnectsync)",
+      JSON.stringify({ enteredinsulin: 5.64, splitNow: 60, splitExt: 40, duration: 120, relative: 1.13, pump_event_id: "10,11,12,13" }));
+    // 2025-11-03: combo 2 now of 4 total, 50/50 over 1 h, extension cancelled: its own row delivered 1.2 U
+    ins.run("c2", "2025-11-03T20:00:00.000Z", "Combo Bolus", 2, "Pump (tconnectsync)",
+      JSON.stringify({ enteredinsulin: 4, splitNow: 50, splitExt: 50, duration: 60, relative: 2, pump_event_id: "20,21,22,23" }));
+    ins.run("c2x", "2025-11-03T20:40:00.000Z", "Combo Bolus", 1.2, "Pump (tconnectsync)",
+      JSON.stringify({ notes: "Extended Bolus", pump_event_id: "40" }));
+    // a combo request the pump never completed (no insulin): counts nothing
+    ins.run("c3", "2025-11-02T22:00:00.000Z", "Combo Bolus", null, "Pump (tconnectsync)",
+      JSON.stringify({ enteredinsulin: 6, splitNow: 60, splitExt: 40, duration: 120, pump_event_id: "30,31,32,33" }));
+    w.close();
+
+    const out = await run(SYNC, ["recompute"], o);
+    expect(out.stdout).toMatch(/combo boluses counting their extended part: 1/);
+
+    const db = openDatabaseReadOnly(dbPath);
+    try {
+      const eff = Object.fromEntries((db.prepare("SELECT id, insulin_effective AS e FROM treatments WHERE id IN ('c1','c2','c2x','c3')").all() as { id: string; e: number }[]).map((r) => [r.id, r.e]));
+      expect(eff).toEqual({ c1: 5.716, c2: 2, c2x: 1.2, c3: null });
+      const day = (d: string) => db.prepare("SELECT bolus_u FROM daily_stats WHERE day = ?").get(d) as { bolus_u: number };
+      // fixture bolus on 11-02 is 0; on 11-03 the Meal Bolus is 2 U (the 11-04 UTC correction is 11-03 local too: 1.5)
+      expect(day("2025-11-02").bolus_u).toBeCloseTo(5.716, 3);
+      const call = (name: string, args: Record<string, unknown>) => JSON.parse(callTool(db, name, args, dbPath));
+      for (const d of ["2025-11-02", "2025-11-03"]) {
+        const r = call("get_range_stats", { date_from: d, include_insulin: true });
+        expect(r.insulin.bolus_u, d).toBeCloseTo(day(d).bolus_u, 2);
+      }
+      const rows = call("list_treatments", { date_from: "2025-11-02", event_type: "Combo Bolus" }).rows;
+      expect(rows.find((r: any) => r.id === "c1")).toMatchObject({ insulin: 3.46, insulin_counted: 5.716 });
+    } finally {
+      db.close();
+    }
+  }, 60_000);
+});

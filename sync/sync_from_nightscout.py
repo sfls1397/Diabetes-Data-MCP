@@ -165,6 +165,11 @@ CREATE INDEX IF NOT EXISTS idx_tx_type ON treatments(event_type);
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables/indexes if missing. Safe on every run; portable Mac Mini bootstrap."""
     conn.executescript(SCHEMA_SQL)
+    # treatments.insulin_effective: units this row adds to insulin totals (see
+    # apply_combo_effective). Added 2026-10-03; NULL until the first run fills it.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(treatments)")}
+    if "insulin_effective" not in cols:
+        conn.execute("ALTER TABLE treatments ADD COLUMN insulin_effective REAL")
     # Seed portable meta if empty
     if conn.execute("SELECT COUNT(*) FROM meta").fetchone()[0] == 0:
         conn.execute("INSERT INTO meta(key,value) VALUES ('schema_version','1')")
@@ -258,8 +263,9 @@ def upsert_treatments(conn: sqlite3.Connection, rows: list[dict]) -> int:
             ts = None
         conn.execute(
             """INSERT OR REPLACE INTO treatments(
-                 id,created_at,timestamp_ms,event_type,insulin,carbs,duration_min,rate,percent,absolute,entered_by,notes,raw_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 id,created_at,timestamp_ms,event_type,insulin,carbs,duration_min,rate,percent,absolute,entered_by,notes,raw_json,
+                 insulin_effective)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 str(tid),
                 created,
@@ -274,10 +280,80 @@ def upsert_treatments(conn: sqlite3.Connection, rows: list[dict]) -> int:
                 r.get("enteredBy"),
                 r.get("notes") or r.get("reason"),
                 json.dumps(r, separators=(",", ":")),
+                r.get("insulin"),
             ),
         )
         n += 1
     return n
+
+
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def apply_combo_effective(conn: sqlite3.Connection) -> int:
+    """Set treatments.insulin_effective so totals reflect insulin actually given.
+
+    A combo bolus in Care Portal shape stores only the immediate part in `insulin`
+    (`enteredinsulin` is the total, `splitExt`% of it extended over `duration` min).
+    Its extended part is either:
+      - its own later single-id "Combo Bolus" row (stock tconnectsync, or VM-era combos
+        whose extended entry survived): that row carries the units actually delivered
+        (less if the extension was cancelled), so the combo row counts `insulin` only; or
+      - absent (current mapping drops it to avoid double counting in Nightscout IOB):
+        the combo row counts `insulin` + requested extended units.
+    A combo row with no `insulin` at all is a request the pump never completed (cancelled);
+    it counts nothing.
+    Every other row counts `insulin`. Recomputed for all combos each run (a few hundred
+    rows); an extended row is matched to at most one combo.
+    """
+    is_combo = "event_type = 'Combo Bolus' AND json_extract(raw_json,'$.enteredinsulin') IS NOT NULL"
+    # Non-combo rows always count `insulin` (no-op after the first run).
+    conn.execute(f"UPDATE treatments SET insulin_effective = insulin WHERE insulin_effective IS NOT insulin AND NOT ({is_combo})")
+    combos = conn.execute(
+        """SELECT id, created_at, insulin, insulin_effective AS current,
+                  json_extract(raw_json,'$.enteredinsulin') AS entered,
+                  json_extract(raw_json,'$.splitExt') AS split_ext,
+                  json_extract(raw_json,'$.duration') AS dur
+           FROM treatments
+           WHERE event_type = 'Combo Bolus' AND json_extract(raw_json,'$.enteredinsulin') IS NOT NULL
+           ORDER BY created_at"""
+    ).fetchall()
+    if not combos:
+        return 0
+    ext_rows = []
+    for r in conn.execute(
+        """SELECT id, created_at, insulin FROM treatments
+           WHERE event_type = 'Combo Bolus' AND insulin IS NOT NULL
+             AND json_extract(raw_json,'$.enteredinsulin') IS NULL
+             AND instr(coalesce(json_extract(raw_json,'$.pump_event_id'),''), ',') = 0"""
+    ):
+        t = _parse_iso(r["created_at"])
+        if t is not None:
+            ext_rows.append((t, r["id"], float(r["insulin"])))
+    used: set = set()
+    adjusted = 0
+    for c in combos:
+        want = c["insulin"]
+        start = _parse_iso(c["created_at"])
+        # No immediate amount = the pump never completed this request (it was cancelled and
+        # usually re-entered minutes later as a separate bolus): nothing delivered, add nothing.
+        if c["insulin"] is not None and start is not None and c["entered"] is not None and c["split_ext"] is not None and c["dur"]:
+            requested_ext = float(c["entered"]) * float(c["split_ext"]) / 100.0
+            end = start + timedelta(minutes=float(c["dur"]))
+            candidates = [e for e in ext_rows
+                          if e[1] not in used and start < e[0] <= end + timedelta(minutes=30) and e[2] <= requested_ext + 0.06]
+            if candidates:
+                used.add(min(candidates, key=lambda e: abs((e[0] - end).total_seconds()))[1])
+            else:
+                want = round(float(c["insulin"] or 0) + requested_ext, 3)
+                adjusted += 1
+        if c["current"] != want:
+            conn.execute("UPDATE treatments SET insulin_effective = ? WHERE id = ?", (want, c["id"]))
+    return adjusted
 
 
 def ns_query(path: str, params: list[tuple[str, object]]) -> str:
@@ -421,7 +497,7 @@ def recompute_daily(conn: sqlite3.Connection, day: str, source: str = "Nightscou
     end_iso = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
     rows = conn.execute(
-        """SELECT event_type, insulin, duration_min, rate, absolute, percent, created_at
+        """SELECT event_type, coalesce(insulin_effective, insulin) AS insulin, duration_min, rate, absolute, percent, created_at
            FROM treatments WHERE created_at >= ? AND created_at < ?""",
         (start_iso, end_iso),
     ).fetchall()
@@ -616,6 +692,7 @@ def run(mode: str) -> None:
             print(f"stale duplicate treatments removed: {reconcile_treatments(conn, seen)}")
             meta_set(conn, "last_backfill_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
         if mode in ("sync", "stats", "recompute", "backfill"):
+            print(f"combo boluses counting their extended part: {apply_combo_effective(conn)}")
             since = stats_since(conn) if mode == "sync" else None
             days = recompute_range(conn, since=since)
             print(f"daily_stats days: {days}{' (recent)' if since else ' (full)'}")

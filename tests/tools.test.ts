@@ -105,6 +105,7 @@ describe("list_treatments", () => {
       "local",
       "event_type",
       "insulin",
+      "insulin_counted",
       "carbs",
       "duration_min",
       "rate",
