@@ -1,0 +1,45 @@
+# Test on Ubuntu and publish to npmjs.org on GitHub Release using npm trusted
+# publishing (OIDC). No NPM_TOKEN.
+# publish-npm uses Node 24 so npm is new enough for OIDC (Node 20 / npm 10 → ENEEDAUTH).
+# The test job stays on Node 22 (node:sqlite needs 22.5+).
+
+name: Test and Publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+
+  publish-npm:
+    if: github.event_name == 'release'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      # dist/ is gitignored; package.json "files" includes dist/. Build before publish.
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --access public

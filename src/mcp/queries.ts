@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import type { DatabaseSync } from "../db/open.js";
-import { tableExists } from "../db/open.js";
+import { tableColumns, tableExists } from "../db/open.js";
 import {
   WEEKDAY_NAMES,
   TIMEZONE,
@@ -164,7 +164,9 @@ export function insulinTotals(rows: Row[]): Record<string, number | null> {
   let carbs = 0;
   for (const r of rows) {
     const et = String(r.event_type ?? "").toLowerCase();
-    const insulin = num(r.insulin) ?? 0;
+    // insulin_effective = units the row adds to totals (combo: immediate + extended when
+    // its separate extended entry is absent). Older archives lack it: fall back to insulin.
+    const insulin = num(r.insulin_effective) ?? num(r.insulin) ?? 0;
     const c = num(r.carbs);
     if (c) carbs += c;
     if (et.includes("bolus") || et === "smb") {
@@ -209,10 +211,11 @@ function sgvRows(db: DatabaseSync, startMs: number, endMs: number, withRaw = fal
  * one-day margin and the exact window is applied on the parsed time.
  */
 function treatmentRows(db: DatabaseSync, startMs: number, endMs: number, withRaw = false): (Row & { _ms: number })[] {
+  const effective = tableColumns(db, "treatments").has("insulin_effective") ? ", insulin_effective" : "";
   const rows = db
     .prepare(
       `SELECT id, created_at, timestamp_ms, event_type, insulin, carbs, duration_min, rate, percent, absolute,
-              entered_by, notes${withRaw ? ", raw_json" : ""}
+              entered_by, notes${effective}${withRaw ? ", raw_json" : ""}
        FROM treatments
        WHERE created_at >= ? AND created_at < ?
        ORDER BY created_at`
@@ -375,6 +378,7 @@ export function runListTreatments(db: DatabaseSync, args: Record<string, unknown
       local: localIso(r._ms),
       event_type: r.event_type ?? null,
       insulin: r.insulin ?? null,
+      insulin_counted: r.insulin_effective ?? r.insulin ?? null,
       carbs: r.carbs ?? null,
       duration_min: r.duration_min ?? null,
       rate: r.rate ?? null,

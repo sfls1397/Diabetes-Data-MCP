@@ -6,7 +6,7 @@ in the Mini's Keychain (service `diabetes-data-mcp-http`, account
 `http-auth-token`). Print it on the Mini with:
 
 ```bash
-node ~/code/Diabetes-Data-MCP/bin/diabetes-data-mcp.js http-token
+diabetes-data-mcp http-token
 ```
 
 The server prefers `serverHost`/`serverPort` from
@@ -60,7 +60,7 @@ Same tools, no token. The process still opens SQLite read-only.
   "mcpServers": {
     "diabetes-data": {
       "command": "/absolute/path/to/node",
-      "args": ["/Users/petercoates/code/Diabetes-Data-MCP/bin/diabetes-data-mcp.js", "stdio"]
+      "args": ["/Users/petercoates/.local/node/lib/node_modules/diabetes-data-mcp/bin/diabetes-data-mcp.js", "stdio"]
     }
   }
 }
