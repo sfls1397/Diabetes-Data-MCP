@@ -1,0 +1,89 @@
+# Reviewed offline ruleset v1. Add rules with positive/negative probes.
+# No registry fetch, baseline suppression, or test/source-directory exclusions.
+rules:
+  - id: javascript-dynamic-eval
+    languages: [javascript, typescript]
+    message: Dynamic code evaluation can execute untrusted input.
+    severity: ERROR
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function(...)
+  - id: javascript-shell-mode
+    languages: [javascript, typescript]
+    message: Shell-mode subprocesses require review for command injection.
+    severity: ERROR
+    pattern: '$F(..., { ..., shell: true, ... }, ...)'
+  - id: javascript-disabled-tls
+    languages: [javascript, typescript]
+    message: Disabling TLS certificate validation permits interception.
+    severity: ERROR
+    pattern: '{ ..., rejectUnauthorized: false, ... }'
+  - id: javascript-tls-env-bypass
+    languages: [javascript, typescript]
+    message: Do not disable TLS validation through the process environment.
+    severity: ERROR
+    pattern-either:
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      - pattern: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
+  - id: javascript-weak-password-hash
+    languages: [javascript, typescript]
+    message: MD5/SHA1 hashes require review; never use them for passwords or security integrity.
+    severity: ERROR
+    pattern-either:
+      - pattern: $C.createHash('md5')
+      - pattern: $C.createHash('sha1')
+  - id: javascript-command-injection
+    languages: [javascript, typescript]
+    message: Untrusted request data reaches a shell command.
+    severity: ERROR
+    mode: taint
+    pattern-sources:
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+    pattern-sinks:
+      - pattern: exec($CMD, ...)
+      - pattern: execSync($CMD, ...)
+      - pattern: child_process.exec($CMD, ...)
+      - pattern: child_process.execSync($CMD, ...)
+  - id: python-dynamic-eval
+    languages: [python]
+    message: Dynamic Python code execution requires review for untrusted input.
+    severity: ERROR
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+  - id: python-shell-mode
+    languages: [python]
+    message: Shell-mode subprocesses require review for command injection.
+    severity: ERROR
+    pattern: subprocess.$F(..., shell=True, ...)
+  - id: python-disabled-tls
+    languages: [python]
+    message: Disabling TLS certificate validation permits interception.
+    severity: ERROR
+    pattern-either:
+      - pattern: requests.$F(..., verify=False, ...)
+      - pattern: ssl._create_unverified_context(...)
+  - id: python-unsafe-deserialization
+    languages: [python]
+    message: Pickle deserialization can execute code; only load trusted data.
+    severity: ERROR
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+  - id: python-unsafe-yaml
+    languages: [python]
+    message: Use yaml.safe_load or an explicit safe loader.
+    severity: ERROR
+    patterns:
+      - pattern: yaml.load(...)
+      - pattern-not: yaml.load(..., Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load(..., Loader=yaml.CSafeLoader, ...)
+  - id: python-weak-password-hash
+    languages: [python]
+    message: MD5/SHA1 hashes require review; never use them for passwords or security integrity.
+    severity: ERROR
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)

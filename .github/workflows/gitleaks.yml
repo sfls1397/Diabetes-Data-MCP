@@ -15,14 +15,18 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Verify Cursor Cloud Gitleaks setup
         run: |
-          bash .cursor/install-gitleaks.sh
+          bash .cursor/install-security.sh
           before="$(sha256sum "$(command -v gitleaks)")"
-          bash .cursor/install-gitleaks.sh
+          bash .cursor/install-security.sh
           test "$before" = "$(sha256sum "$(command -v gitleaks)")"
           test "$(git config core.hooksPath)" = .githooks
           test -x .githooks/pre-commit
+          export PATH="$HOME/.local/bin:$PATH"
           .githooks/pre-commit
       - name: Scan full history
         run: |

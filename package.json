@@ -53,7 +53,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "scan:package": "node scripts/scan-package.js",
-    "prepublishOnly": "npm run build && npm run scan:package"
+    "prepublishOnly": "npm run security:check && npm run build && npm run scan:package",
+    "security:check": "python3 .security/scan.py all"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0"
