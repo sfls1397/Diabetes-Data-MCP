@@ -217,7 +217,7 @@ Optional `~/.diabetes-data-mcp/config.json` (see `examples/config.json.example`)
 
 | Key / env | Default |
 | --- | --- |
-| `dbPath` / `DIABETES_DATA_MCP_DB_PATH` | `/tmp/example/.diabetes-data/diabetes.sqlite` |
+| `dbPath` / `DIABETES_DATA_MCP_DB_PATH` | `~/.diabetes-data/diabetes.sqlite` (derived from the runtime home) |
 | `serverHost` / `DIABETES_DATA_MCP_SERVER_HOST` | `0.0.0.0` |
 | `serverPort` / `DIABETES_DATA_MCP_SERVER_PORT` | `8424` (preferred start) |
 
@@ -230,3 +230,31 @@ npm install
 npm test          # vitest: tools, time math, HTTP auth, and a fake-Nightscout end-to-end sync
 npm run typecheck
 ```
+
+
+### Persistent database setting
+
+The default archive is `.diabetes-data/diabetes.sqlite` under the runtime user's home.
+For a different archive, enter its absolute path once as `dbPath` in
+`~/.diabetes-data-mcp/config.json` (mode 0600, directory mode 0700).
+Existing local config survives npm upgrades. Environment overrides the file;
+the file overrides the home-derived default. No deploy-time path entry is needed.
+The MCP always opens the archive read-only; the existing sync job remains its sole writer.
+The example config omits `dbPath` to keep the portable default.
+
+### Privacy gates
+
+Install Gitleaks 8.30.1 and enable the staged gate once per clone:
+
+```bash
+git config core.hooksPath .githooks
+gitleaks git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner .
+npm run build && npm run scan:package
+```
+
+Push and pull-request CI scans full fetched history and the exact npm package
+file list. Release CI scans history and `prepublishOnly` rebuilds and scans
+the package before OIDC publication. Tests use synthetic Patient A fixtures.
+Keep real paths and people solely in local settings, and secrets in Keychain.
+After a history rewrite, discard old clones and re-clone so removed history
+is not restored by an old branch.

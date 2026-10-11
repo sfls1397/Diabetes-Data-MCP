@@ -34,3 +34,10 @@ export function getAppDir(options: PathOptions = {}): string {
 export function getConfigPath(options: PathOptions = {}): string {
   return path.join(getAppDir(options), CONFIG_FILE_NAME);
 }
+
+/** Home-derived archive default; real overrides belong in the local config file. */
+export function getDefaultDbPath(options: PathOptions = {}): string {
+  const env = options.env || process.env;
+  const home = env.HOME || (options.homedir || (() => os.homedir()))();
+  return path.join(home, ".diabetes-data", "diabetes.sqlite");
+}

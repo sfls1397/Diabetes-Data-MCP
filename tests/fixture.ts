@@ -75,6 +75,7 @@ export function fixtureSgv(): SgvPoint[] {
   return out;
 }
 
+/** Entirely synthetic people, treatment events and numeric values for arithmetic tests. */
 export const FIXTURE_TREATMENTS = [
   // 2025-11-01 02:00 CDT
   { id: "t1", created_at: "2025-11-01T07:00:00.000Z", event_type: "Temp Basal", rate: 0.8, duration_min: 60, entered_by: "tconnectsync" },

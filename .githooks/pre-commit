@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo 'Commit blocked: install Gitleaks and retry.' >&2
+  exit 1
+fi
+if ! gitleaks protect --staged --redact=100 --no-banner --config .gitleaks.toml >/dev/null 2>&1; then
+  echo 'Commit blocked: staged privacy/secret scan failed or could not complete.' >&2
+  exit 1
+fi
