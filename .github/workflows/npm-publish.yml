@@ -44,6 +44,13 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
       # dist/ is gitignored; package.json "files" includes dist/. Build before publish.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Provision scanners for prepublish gates
+        run: |
+          bash .cursor/install-security.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm run build
       - name: Scan release history

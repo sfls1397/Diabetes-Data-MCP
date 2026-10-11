@@ -8,3 +8,7 @@ if ! gitleaks protect --staged --redact=100 --no-banner --config .gitleaks.toml 
   echo 'Commit blocked: staged privacy/secret scan failed or could not complete.' >&2
   exit 1
 fi
+
+# Additional gates use staged bytes, preserving the privacy scan above.
+export PATH="$HOME/.local/bin:$PATH"
+python3 .security/scan.py staged
