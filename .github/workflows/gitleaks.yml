@@ -15,6 +15,15 @@ jobs:
         with:
           node-version: '24'
           package-manager-cache: false
+      - name: Verify Cursor Cloud Gitleaks setup
+        run: |
+          bash .cursor/install-gitleaks.sh
+          before="$(sha256sum "$(command -v gitleaks)")"
+          bash .cursor/install-gitleaks.sh
+          test "$before" = "$(sha256sum "$(command -v gitleaks)")"
+          test "$(git config core.hooksPath)" = .githooks
+          test -x .githooks/pre-commit
+          .githooks/pre-commit
       - name: Scan full history
         run: |
           if ! docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner . >/dev/null 2>&1; then
