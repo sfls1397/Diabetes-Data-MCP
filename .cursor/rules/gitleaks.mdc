@@ -1,0 +1,13 @@
+---
+description: Secrets and personal-data gate for every Cursor agent
+alwaysApply: true
+---
+
+# Gitleaks commit and PR gate
+
+- Never commit secrets or personal data, including personal emails, home paths, private network details, or phone numbers. Keep personal data out of prompts and PR titles/descriptions/comments; use neutral placeholders.
+- First run `git config core.hooksPath .githooks`. The cloud install script installs pinned Gitleaks and enables the hook. If Gitleaks is missing, run `bash .cursor/install-gitleaks.sh` on Linux. In each new shell, include the fallback directory with `export PATH="$HOME/.local/bin:$PATH"`.
+- Before every commit and before opening or updating a PR, run `.githooks/pre-commit` (or `gitleaks git --pre-commit --staged --redact -v --config .gitleaks.toml`). Stage the intended changes first. A failed or incomplete scan blocks the commit or PR update; fix the finding and rerun.
+- Never use `--no-verify`. Never edit `.gitleaks.toml` or `.githooks` to hide a finding.
+- Use the GitHub noreply identity for both commit author and committer. For this repository's owner, use `241515594+sfls1397@users.noreply.github.com`. Confirm the identity before committing; never use a personal email.
+- Confirm the existing privacy/secret CI and any package-contents scan pass before merging. Keep `.cursor/` and `AGENTS.md` out of npm package contents.
