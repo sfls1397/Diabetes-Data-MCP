@@ -1,5 +1,4 @@
 {
-  "dbPath": "/tmp/example/.diabetes-data/diabetes.sqlite",
   "serverHost": "0.0.0.0",
   "serverPort": 8424
 }

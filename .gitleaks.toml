@@ -1,0 +1,45 @@
+title = "Diabetes Data MCP secrets and privacy gate"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "private-user-home"
+description = "Personal macOS home path; use home-derived paths or neutral examples"
+regex = '''/Users/[A-Za-z0-9._-]+'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''/Users/(?:example|test|REPLACE_ME|fixture)(?:$|/)''']
+
+[[rules]]
+id = "private-hostname"
+description = "Private Mac or LAN hostname"
+regex = '''(?i)\b(?:[a-z0-9-]+\.lan|[a-z0-9-]*(?:mac|mini)[a-z0-9-]*\.local)\b'''
+
+[[rules]]
+id = "cloaked-relay-email"
+description = "Personal relay email address"
+regex = '''(?i)\b[a-z0-9._%+-]+@(?:usecloaked|clkdmail)\.com\b'''
+
+[[rules]]
+id = "phone-number"
+description = "North American phone literal; synthetic 555 examples are allowed"
+regex = '''(?:\+1[ .-]?)?(?:\([2-9][0-9]{2}\)[ .-]?|[2-9][0-9]{2}[ .-])[2-9][0-9]{2}[ .-][0-9]{4}\b|\+1[2-9][0-9]{2}[2-9][0-9]{6}\b'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''\+1555[0-9]{7}''', '''(?:\+1[ .-]?)?\(?[2-9][0-9]{2}\)?[ .-]?555[ .-]?[0-9]{4}''']
+
+[[rules]]
+id = "ssn-shaped-literal"
+description = "SSN-shaped literal; only all-zero synthetic examples allowed"
+regex = '''\b[0-9]{3}[- ][0-9]{2}[- ][0-9]{4}\b'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''^000[- ]00[- ]0000$''']
+
+[[rules]]
+id = "named-health-fixture"
+description = "Named person adjacent to a treatment fixture; use Patient A and synthetic values"
+regex = '''(?i)(?:entered_by|patient_name|patientName)\s*[:=]\s*["'][A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+)?["']'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''(?i)["']Patient [A-Z]["']''', '''(?i)["'](?:tconnectsync|example|synthetic|patient)["']''']

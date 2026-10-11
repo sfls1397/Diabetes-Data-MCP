@@ -1,6 +1,6 @@
 {
   "name": "diabetes-data-mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Mac Mini diabetes data plane: LAN-only Nightscout (LaunchAgents, loopback MongoDB), the Nightscout to SQLite sync, and a read-only bearer-token Streamable HTTP MCP over that archive",
   "type": "module",
   "main": "dist/cli.js",
@@ -51,7 +51,9 @@
     "serve": "node dist/cli.js serve",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "scan:package": "node scripts/scan-package.js",
+    "prepublishOnly": "npm run build && npm run scan:package"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0"

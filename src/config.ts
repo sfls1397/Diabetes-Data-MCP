@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { DEFAULT_DB_PATH, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, getConfigPath } from "./paths.js";
+import { getDefaultDbPath, DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, getConfigPath } from "./paths.js";
 
 const KNOWN_CONFIG_KEYS = new Set(["dbPath", "serverHost", "serverPort"]);
 
@@ -76,7 +76,7 @@ export function resolveConfig(
   const dbPath =
     env.DIABETES_DATA_MCP_DB_PATH ||
     (typeof data.dbPath === "string" && data.dbPath.trim() ? data.dbPath : undefined) ||
-    DEFAULT_DB_PATH;
+    getDefaultDbPath({ env });
 
   const serverHost =
     env.DIABETES_DATA_MCP_SERVER_HOST ||

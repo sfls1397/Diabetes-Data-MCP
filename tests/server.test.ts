@@ -48,15 +48,27 @@ describe("bearer auth", () => {
 describe("config", () => {
   it("defaults to port 8424 and the Mini archive path, env overrides", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "diabetes-home-"));
-    const defaults = resolveConfig({ env: { DIABETES_DATA_MCP_HOME: home }, warn: () => {} });
+    const defaults = resolveConfig({ env: { DIABETES_DATA_MCP_HOME: home, HOME: home }, warn: () => {} });
     expect(defaults.serverPort).toBe(8424);
     expect(defaults.serverHost).toBe("0.0.0.0");
-    expect(defaults.dbPath).toBe("/tmp/example/.diabetes-data/diabetes.sqlite");
+    expect(defaults.dbPath).toBe(path.join(home, ".diabetes-data", "diabetes.sqlite"));
     const env = resolveConfig({
       env: { DIABETES_DATA_MCP_HOME: home, DIABETES_DATA_MCP_DB_PATH: "/tmp/archive.sqlite", DIABETES_DATA_MCP_SERVER_PORT: "9000" },
       warn: () => {}
     });
     expect(env.dbPath).toBe("/tmp/archive.sqlite");
     expect(env.serverPort).toBe(9000);
+  });
+});
+
+// Persisted overrides survive package upgrades and take precedence over a new default.
+describe("persistent local database setting", () => {
+  it("uses the saved archive without re-entry, while env remains the explicit override", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "diabetes-local-config-"));
+    const saved = path.join(home, "existing-archive.sqlite");
+    fs.writeFileSync(path.join(home, "config.json"), JSON.stringify({ dbPath: saved }));
+    const env = { HOME: home, DIABETES_DATA_MCP_HOME: home };
+    expect(resolveConfig({ env }).dbPath).toBe(saved);
+    expect(resolveConfig({ env: { ...env, DIABETES_DATA_MCP_DB_PATH: "/tmp/override.sqlite" } }).dbPath).toBe("/tmp/override.sqlite");
   });
 });
