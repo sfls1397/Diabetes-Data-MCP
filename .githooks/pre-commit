@@ -1,7 +1,11 @@
 #!/bin/sh
 set -eu
+# Default-image cloud agents skip environment.json; tools install to ~/.local/bin.
+export PATH="$HOME/.local/bin:$PATH"
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo 'Commit blocked: install Gitleaks and retry.' >&2
+  echo 'If gitleaks version or semgrep --version fails, run: bash .cursor/install-security.sh && git config core.hooksPath .githooks' >&2
+  echo 'Then: export PATH="$HOME/.local/bin:$PATH"' >&2
   exit 1
 fi
 if ! gitleaks protect --staged --redact=100 --no-banner --config .gitleaks.toml >/dev/null 2>&1; then
@@ -10,5 +14,4 @@ if ! gitleaks protect --staged --redact=100 --no-banner --config .gitleaks.toml 
 fi
 
 # Additional gates use staged bytes, preserving the privacy scan above.
-export PATH="$HOME/.local/bin:$PATH"
 python3 .security/scan.py staged

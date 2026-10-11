@@ -10,7 +10,12 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' || {
 }
 if [[ ! -x "$install_root/bin/semgrep" ]] || [[ "$("$install_root/bin/semgrep" --version 2>/dev/null)" != "$version" ]]; then
   mkdir -p -- "$(dirname -- "$install_root")"
-  python3 -m venv "$install_root"
+  # Default cloud images omit ensurepip; keep the same pin via system pip.
+  if python3 -c 'import ensurepip' >/dev/null 2>&1; then
+    python3 -m venv --clear "$install_root"
+  else
+    python3 -m venv --clear --without-pip --system-site-packages "$install_root"
+  fi
   if ! "$install_root/bin/python" -m pip install --disable-pip-version-check --quiet "semgrep==$version" >/dev/null 2>&1; then
     echo 'Pinned Semgrep installation failed; check PyPI access.' >&2; exit 1
   fi

@@ -6,6 +6,7 @@ alwaysApply: true
 # Gitleaks commit and PR gate
 
 - Never commit secrets or personal data, including personal emails, home paths, private network details, or phone numbers. Keep personal data out of prompts and PR titles/descriptions/comments; use neutral placeholders.
+- Before any commit, if `gitleaks version` or `semgrep --version` fails, run `bash .cursor/install-security.sh` (and `git config core.hooksPath .githooks`), then re-run the scan.
 - First run `git config core.hooksPath .githooks`. The cloud install script installs pinned Gitleaks and enables the hook. If Gitleaks is missing, run `bash .cursor/install-security.sh` on Linux. In each new shell, include the fallback directory with `export PATH="$HOME/.local/bin:$PATH"`.
 - Before every commit and before opening or updating a PR, run `.githooks/pre-commit` (or `gitleaks git --pre-commit --staged --redact -v --config .gitleaks.toml`). Stage the intended changes first. A failed or incomplete scan blocks the commit or PR update; fix the finding and rerun.
 - Never use `--no-verify`. Never edit `.gitleaks.toml` or `.githooks` to hide a finding.
