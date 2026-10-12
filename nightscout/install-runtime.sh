@@ -7,12 +7,15 @@
 # Usage: sh nightscout/install-runtime.sh [/absolute/path/to/node]
 # Never reads or prints secrets.
 set -eu
+umask 077
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 MONGO_VERSION=8.0.32
 MONGO_SHA256=f81cb258434d548dca7244d599c82eb339043d8dedd0b1b807870c9d263117f2
 TOOLS_VERSION=100.19.1
 TOOLS_SHA256=54643d4aedb79ddc81797d6fb54113acf79f77fd82a5868b6674f6c74e1b3000
-NS_TAG=v15.0.7
+NS_TAG=v15.0.8
+NS_COMMIT=92d0834219aa771b5837dbcbf1baeb839a200cf6
 NS_REPO=https://github.com/nightscout/cgm-remote-monitor.git
 
 NODE=${1:-$(command -v node || true)}
@@ -55,13 +58,29 @@ fi
 ln -sfn "mongodb-$MONGO_VERSION" "$RT/mongodb"
 ln -sfn "mongotools-$TOOLS_VERSION" "$RT/mongotools"
 
-NS_DIR=$RT/nightscout-${NS_TAG#v}
-if [ ! -f "$NS_DIR/node_modules/.package-lock.json" ]; then
-  rm -rf "$NS_DIR"
-  git -c advice.detachedHead=false clone -q --depth 1 --branch "$NS_TAG" "$NS_REPO" "$NS_DIR"
-  (cd "$NS_DIR" && PATH="$NODE_DIR:$PATH" npm ci --no-audit --no-fund --loglevel=error)
+# The profile hash selects an immutable prepared runtime. An incomplete or failed
+# build never replaces the current runtime, and a future profile cannot reuse it.
+PROFILE_SHA=$({ cat "$SCRIPT_DIR"/runtime-profile/* "$SCRIPT_DIR"/compat/* "$SCRIPT_DIR/prepare-runtime.mjs" "$SCRIPT_DIR/sanitize-connect.mjs"; } | shasum -a 256 | cut -d' ' -f1)
+NS_NAME=nightscout-${NS_TAG#v}-$PROFILE_SHA
+NS_DIR=$RT/$NS_NAME
+if [ ! -f "$NS_DIR/.diabetes-runtime-ready" ]; then
+  tmp=$(mktemp -d "$RT/.nightscout.XXXXXX")
+  trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+  git -c advice.detachedHead=false clone -q --depth 1 --branch "$NS_TAG" "$NS_REPO" "$tmp/source"
+  test "$(git -C "$tmp/source" rev-parse HEAD)" = "$NS_COMMIT" || { echo "Nightscout commit mismatch" >&2; exit 1; }
+  "$NODE" "$SCRIPT_DIR/prepare-runtime.mjs" "$tmp/source"
+  (cd "$tmp/source" && PATH="$NODE_DIR:$PATH" npm ci --allow-remote=all --no-audit --no-fund --loglevel=error &&
+    PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=high &&
+    PATH="$NODE_DIR:$PATH" npm prune --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error &&
+    "$NODE" "$SCRIPT_DIR/sanitize-connect.mjs" "$tmp/source")
+  printf '%s\n' "$PROFILE_SHA" > "$tmp/source/.diabetes-runtime-ready"
+  mv "$tmp/source" "$NS_DIR"
+  rmdir "$tmp"
+  trap - EXIT HUP INT TERM
 fi
-ln -sfn "nightscout-${NS_TAG#v}" "$RT/nightscout"
+test "$(cat "$NS_DIR/.diabetes-runtime-ready")" = "$PROFILE_SHA" || { echo "Nightscout runtime marker mismatch" >&2; exit 1; }
+(cd "$NS_DIR" && PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=high)
+ln -sfn "$NS_NAME" "$RT/nightscout"
 
 echo "mongod:       $("$RT/mongodb/bin/mongod" --version | head -1)"
 echo "mongorestore: $("$RT/mongotools/bin/mongorestore" --version | head -1)"

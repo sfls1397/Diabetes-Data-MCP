@@ -148,6 +148,10 @@ def full():
                 shutil.copyfile(source, target)
         reviewed = policy(snapshot)
         audit(snapshot, reviewed)
+        runtime = snapshot / 'nightscout/runtime-profile'
+        if runtime.is_dir() or (snapshot / 'nightscout/install-runtime.sh').is_file():
+            print('Auditing the separately installed Nightscout runtime profile')
+            audit(runtime, {})
         normalize_parser(snapshot)
         semgrep(snapshot, reviewed)
         language_scan(snapshot)
@@ -155,11 +159,15 @@ def full():
 
 def staged():
     changed = [os.fsdecode(p) for p in git(['diff', '--cached', '--name-only',
-                                         '--diff-filter=ACMR', '-z']).split(b'\0') if p]
+                                         '--diff-filter=ACMRD', '-z']).split(b'\0') if p]
     with tempfile.TemporaryDirectory(prefix='repo-security-') as directory:
         snapshot = Path(directory)
         # Use the index for tools, configuration, package metadata and candidate source.
         required = ['.semgrepignore', 'package.json', 'package-lock.json']
+        runtime_metadata = ['nightscout/runtime-profile/package.json',
+                            'nightscout/runtime-profile/package-lock.json']
+        if any(x.startswith('nightscout/') for x in changed):
+            required += runtime_metadata
         tooling = [os.fsdecode(p) for p in git(['ls-files', '-z', '.security']).split(b'\0') if p]
         for name in dict.fromkeys(changed + required + tooling):
             path = Path(name)
@@ -168,6 +176,8 @@ def staged():
             entries = git(['ls-files', '--stage', '-z', '--', name]).split(b'\0')
             entries = [x for x in entries if x]
             if not entries:
+                if name in required + tooling:
+                    raise RuntimeError('Required security metadata is missing from the index')
                 continue
             mode, oid, stage = entries[0].split(b'\t', 1)[0].split()
             if stage != b'0' or mode not in (b'100644', b'100755'):
@@ -180,6 +190,10 @@ def staged():
         reviewed = policy(snapshot)
         if any(x in changed for x in ['package.json', 'package-lock.json', '.security/policy.json']):
             audit(snapshot, reviewed)
+        if any(x.startswith('nightscout/') for x in changed):
+            runtime = snapshot / 'nightscout/runtime-profile'
+            print('Auditing staged Nightscout runtime metadata')
+            audit(runtime, {})
         # Include tests and scripts; only generated/vendor paths are ignored.
         targets = [x for x in changed if (snapshot / x).is_file()
                    and Path(x).suffix in ('.js', '.cjs', '.mjs', '.jsx', '.ts', '.tsx', '.py')]
