@@ -17,21 +17,31 @@ function prefix(target) {
   return `const console = require(${JSON.stringify(helper.startsWith('.') ? helper : './' + helper)});\n`;
 }
 const pending = [];
+const actorOriginal = 'var actor = interpret(things);';
+const actorSafe = 'var actor = interpret(things, { logger: console.log });';
 for (const [name, expected] of Object.entries(sources)) {
   const target = path.join(connector, name);
-  const content = fs.readFileSync(target);
+  let content = fs.readFileSync(target);
   if (createHash('sha256').update(content).digest('hex') !== expected) {
     const header = Buffer.from(prefix(target));
-    if (!content.subarray(0, header.length).equals(header) ||
-        createHash('sha256').update(content.subarray(header.length)).digest('hex') !== expected) {
+    if (!content.subarray(0, header.length).equals(header)) {
       throw new Error('Connector logging source mismatch');
     }
+    content = content.subarray(header.length);
+    if (name === 'index.js') content = Buffer.from(content.toString().replace(actorSafe, actorOriginal));
+    if (createHash('sha256').update(content).digest('hex') !== expected) throw new Error('Connector logging source mismatch');
   } else {
-    pending.push(target);
+    // Source hashes are checked before any mutation.
   }
+  let output = content.toString();
+  if (name === 'index.js') {
+    if (!output.includes(actorOriginal)) throw new Error('Connector actor source mismatch');
+    output = output.replace(actorOriginal, actorSafe);
+  }
+  pending.push([target, prefix(target) + output]);
 }
-for (const target of pending) {
-  fs.writeFileSync(target, prefix(target) + fs.readFileSync(target, 'utf8'));
+for (const [target, output] of pending) {
+  fs.writeFileSync(target, output);
 }
 fs.copyFileSync(path.join(here, 'compat/safe-console.cjs'), path.join(connector, 'diabetes-safe-console.js'));
 console.log('Nightscout connector logging hardened (no credentials or data dumps)');

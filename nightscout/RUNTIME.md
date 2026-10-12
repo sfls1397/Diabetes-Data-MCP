@@ -34,4 +34,6 @@ To change upstream, update the commit, source hashes, dependency profile and
 tests together. Never bypass a source mismatch or audit failure, and never
 silently reuse an older installed dependency tree.
 
-The v15.0.8 Dexcom connector previously logged validated credential configuration and diagnostic session/request objects. Its exact installed source hashes are checked before a module-local console replacement suppresses verbose dumps and emits only generic warning/error signals. The patch is idempotent and reapplied after production pruning; the application console remains available.
+The v15.0.8 Dexcom connector previously logged validated credential configuration and diagnostic session/request objects. Its exact installed source hashes are checked before a module-local console replacement suppresses verbose dumps and emits only generic warning/error signals. The actor also receives the filtered logger explicitly: XState invokes its own logger for actions.log and passes that option to child actors. The patch is idempotent and reapplied after production pruning; the application console remains available.
+
+The launch wrapper enables the connect settings namespace whenever the bridge is enabled and maps legacy US/EU enums to us/ous regions. This prevents US from being interpreted as a literal hostname during v15 migration. Explicit region configuration remains supported.
