@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+export PATH="$HOME/.local/bin:$PATH"
+python3 .security/metadata.py message "$1"
+if ! gitleaks stdin --config .gitleaks.toml --redact=100 --no-banner < "$1" >/dev/null 2>&1; then
+  echo 'Commit message privacy/secret gate BLOCKED' >&2
+  exit 1
+fi

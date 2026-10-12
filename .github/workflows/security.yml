@@ -26,3 +26,4 @@ jobs:
           test "$before" = "$(sha256sum "$(readlink -f "$(command -v semgrep)")")"
           test "$(git config core.hooksPath)" = .githooks
           python3 .security/test_gates.py
+          python3 .security/test_standard.py

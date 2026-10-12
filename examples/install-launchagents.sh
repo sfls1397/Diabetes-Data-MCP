@@ -10,8 +10,8 @@
 #   tconnectsync: run tconnectsync/install.sh first.
 # Secrets stay in Keychain; this script never reads or prints them.
 set -eu
-DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-REPO=$(CDPATH= cd -- "$DIR/.." && pwd)
+DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+REPO=$(CDPATH='' cd -- "$DIR/.." && pwd)
 NODE=${1:-$(command -v node || true)}
 WHICH=${2:-all}
 test -x "$NODE" || { echo "Node 22.5+ binary not found; pass its absolute path" >&2; exit 1; }

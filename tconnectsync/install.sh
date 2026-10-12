@@ -10,5 +10,5 @@ mkdir -p "$HOME_DIR"
 PYTHONWARNINGS=ignore "$HOME_DIR/venv/bin/pip" install -q --upgrade pip
 PYTHONWARNINGS=ignore "$HOME_DIR/venv/bin/pip" install -q "tconnectsync==$VERSION"
 PYTHONWARNINGS=ignore "$HOME_DIR/venv/bin/python" -c 'import importlib.metadata as m; print("tconnectsync", m.version("tconnectsync"))'
-DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 PYTHONWARNINGS=ignore "$HOME_DIR/venv/bin/python" "$DIR/diabetes_tconnectsync.py" --combo-selftest

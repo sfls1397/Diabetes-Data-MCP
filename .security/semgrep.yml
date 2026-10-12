@@ -87,3 +87,9 @@ rules:
     pattern-either:
       - pattern: hashlib.md5(...)
       - pattern: hashlib.sha1(...)
+
+  - id: javascript-secret-in-argv
+    languages: [javascript, typescript]
+    message: Keychain credential values must use stdin, never process arguments.
+    severity: ERROR
+    pattern: '$F(..., ["add-generic-password", ..., "-w", $SECRET, ...], ...)'

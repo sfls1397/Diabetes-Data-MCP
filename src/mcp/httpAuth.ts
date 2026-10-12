@@ -5,6 +5,7 @@
  * one-time print.
  */
 import crypto from "node:crypto";
+import { writeKeychainSecret } from "../keychainWrite.js";
 import { execFileSync as defaultExecFileSync } from "node:child_process";
 
 export const KEYCHAIN_SERVICE = "diabetes-data-mcp-http";
@@ -35,9 +36,7 @@ export function loadOrCreateHttpAuthToken(
     if (existing) return { token: existing, generated: false };
   }
   const token = randomBytes(32).toString("hex");
-  exec("/usr/bin/security", ["add-generic-password", "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_ACCOUNT, "-w", token, "-U"], {
-    stdio: ["ignore", "ignore", "pipe"]
-  });
+  writeKeychainSecret(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, token, exec);
   log("Generated a new Diabetes Data MCP HTTP auth token and stored it in the Keychain.");
   log("Print it with: diabetes-data-mcp http-token");
   return { token, generated: true };

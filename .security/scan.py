@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Repository gates. Findings are summarized without source or secret values."""
+import importlib.util
 import datetime
 import hashlib
 import json
@@ -124,6 +125,14 @@ def normalize_parser(root):
         p.write_text(text.replace(old, new))
 
 
+
+def language_scan(root, targets=None):
+    spec = importlib.util.spec_from_file_location('additional_languages', root / '.security/languages.py')
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    helper.check(root, targets)
+
+
 def full():
     with tempfile.TemporaryDirectory(prefix='repo-security-') as directory:
         snapshot = Path(directory)
@@ -141,6 +150,7 @@ def full():
         audit(snapshot, reviewed)
         normalize_parser(snapshot)
         semgrep(snapshot, reviewed)
+        language_scan(snapshot)
 
 
 def staged():
@@ -175,6 +185,7 @@ def staged():
                    and Path(x).suffix in ('.js', '.cjs', '.mjs', '.jsx', '.ts', '.tsx', '.py')]
         normalize_parser(snapshot)
         semgrep(snapshot, reviewed, targets)
+        language_scan(snapshot, changed)
 
 
 def main():

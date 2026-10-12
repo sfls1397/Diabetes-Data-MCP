@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+export PATH="$HOME/.local/bin:$PATH"
+python3 .security/metadata.py history
+if ! gitleaks git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner . >/dev/null 2>&1; then
+  echo 'History privacy/secret gate BLOCKED' >&2
+  exit 1
+fi
+python3 .security/scan.py all

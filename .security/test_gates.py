@@ -20,7 +20,7 @@ class Gates(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         (self.root / '.security').mkdir()
-        for name in ['scan.py', 'semgrep.yml']:
+        for name in ['scan.py', 'semgrep.yml', 'languages.py']:
             shutil.copyfile(HERE / name, self.root / '.security' / name)
         (self.root / '.security/policy.json').write_text('{"audit":[],"semgrep":[]}')
         (self.root / '.semgrepignore').write_text('node_modules/\ndist/\n')
@@ -106,7 +106,7 @@ class Gates(unittest.TestCase):
 
     def test_rules_reject_security_sinks(self):
         js = self.root / 'probe.js'
-        js.write_text('import {exec} from "child_process";\nconst req = getRequest();\nexec(req.body);\nnew Function(userInput);\nspawn("tool", [], {shell:true});\nconst options = {rejectUnauthorized:false};\nprocess.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";\ncrypto.createHash("md5");\n')
+        js.write_text('import {exec} from "child_process";\nconst req = getRequest();\nexec(req.body);\nnew Function(userInput);\nspawn("tool", [], {shell:true});\nconst options = {rejectUnauthorized:false};\nprocess.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";\ncrypto.createHash("md5");\nexecFileSync("/usr/bin/security", ["add-generic-password", "-w", secret]);\n')
         py = self.root / 'probe.py'
         py.write_text('import subprocess, requests, pickle, yaml, hashlib\neval(userInput)\nsubprocess.run(cmd, shell=True)\nrequests.get(url, verify=False)\npickle.loads(data)\nyaml.load(data)\nhashlib.md5(data)\n')
         r = subprocess.run(['semgrep','scan','--config','.security/semgrep.yml','--error','--strict','--metrics','off','--disable-version-check','--json','probe.js','probe.py'],cwd=self.root,capture_output=True,text=True)
@@ -114,7 +114,7 @@ class Gates(unittest.TestCase):
         data = json.loads(r.stdout)
         self.assertFalse(data.get('errors'))
         found = {x['check_id'].split('.')[-1] for x in data['results']}
-        expected = {'javascript-dynamic-eval','javascript-shell-mode','javascript-disabled-tls','javascript-tls-env-bypass','javascript-weak-password-hash','javascript-command-injection','python-dynamic-eval','python-shell-mode','python-disabled-tls','python-unsafe-deserialization','python-unsafe-yaml','python-weak-password-hash'}
+        expected = {'javascript-secret-in-argv','javascript-dynamic-eval','javascript-shell-mode','javascript-disabled-tls','javascript-tls-env-bypass','javascript-weak-password-hash','javascript-command-injection','python-dynamic-eval','python-shell-mode','python-disabled-tls','python-unsafe-deserialization','python-unsafe-yaml','python-weak-password-hash'}
         self.assertEqual(found, expected)
 
     def test_invalid_rule_blocks(self):
