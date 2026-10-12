@@ -14,4 +14,5 @@ if ! gitleaks protect --staged --redact=100 --no-banner --config .gitleaks.toml 
 fi
 
 # Additional gates use staged bytes, preserving the privacy scan above.
+python3 .security/metadata.py prospective
 python3 .security/scan.py staged

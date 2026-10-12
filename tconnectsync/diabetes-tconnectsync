@@ -9,7 +9,7 @@
 # combos already stored in Nightscout.
 set -eu
 HOME_DIR=${DIABETES_TCONNECTSYNC_HOME:-$HOME/.diabetes-data/tconnectsync}
-HERE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 PY=$HOME_DIR/venv/bin/python
 BIN=$HOME_DIR/venv/bin/tconnectsync
 test -x "$BIN" || { echo "tconnectsync missing: run tconnectsync/install.sh" >&2; exit 1; }

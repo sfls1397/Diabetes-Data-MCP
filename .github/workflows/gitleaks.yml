@@ -28,6 +28,8 @@ jobs:
           test -x .githooks/pre-commit
           export PATH="$HOME/.local/bin:$PATH"
           .githooks/pre-commit
+      - name: Scan Git metadata
+        run: python3 .security/metadata.py history
       - name: Scan full history
         run: |
           if ! docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner . >/dev/null 2>&1; then

@@ -28,6 +28,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+# Private archive, lock and import files are owner-only.
+os.umask(0o077)
+
 HOME = Path(os.environ.get("HOME", str(Path.home())))
 DB_PATH = Path(os.environ.get("DIABETES_DB_PATH", str(HOME / ".diabetes-data" / "diabetes.sqlite")))
 LOCK_PATH = Path(os.environ.get("DIABETES_SYNC_LOCK", str(DB_PATH.parent / "sync.lock")))
