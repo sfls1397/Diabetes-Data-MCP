@@ -8,7 +8,7 @@ Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm inst
 
 | Piece | What | LaunchAgent |
 | --- | --- | --- |
-| `nightscout/diabetes-nightscout-server` | Nightscout 15.0.7 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
+| `nightscout/diabetes-nightscout-server` | Nightscout 15.0.8 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
 | MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
 | `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
 | `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **minute** (`StartInterval=60`) |
@@ -108,7 +108,7 @@ Tandem Source ──(tconnectsync)─────┴─► Nightscout :8425 ─�
                                             └─► com.diabetes-sqlite.sync ─► SQLite ─► MCP :8424
 ```
 
-Upstream [cgm-remote-monitor](https://github.com/nightscout/cgm-remote-monitor) 15.0.7, downloaded and pinned, not forked or vendored (AGPL-3.0). **Home network only:** no public URL, port-forward, tunnel, or DNS (`nsrange.mooo.com` retired with `gcns-vm`). Dexcom and Tandem are outbound pulls; nothing on the internet connects in.
+Upstream [cgm-remote-monitor](https://github.com/nightscout/cgm-remote-monitor) 15.0.8, downloaded at an exact commit with a reviewed dependency/security compatibility profile (AGPL-3.0; see [runtime profile](nightscout/RUNTIME.md)). **Home network only:** no public URL, port-forward, tunnel, or DNS (`nsrange.mooo.com` retired with `gcns-vm`). Dexcom and Tandem are outbound pulls; nothing on the internet connects in.
 
 Who connects:
 - Grok Bot agents: Local Execution on the Mini → `http://127.0.0.1:8425`, like the other Mini services.
@@ -162,7 +162,7 @@ sh "$PKG/examples/install-launchagents.sh" "$(command -v node)" nightscout   # m
 sh "$PKG/nightscout/prove.sh"                                                # read-only: bind, 401/200, newest SGV, counts
 ```
 
-Optional non-secret overrides: `~/.diabetes-data/nightscout/config.env` (see `nightscout/config.env.example`). Upgrading Nightscout = bump `NS_TAG` in `nightscout/install-runtime.sh`, rerun it, kickstart the server; the old version stays under `runtime/` for rollback.
+Optional non-secret overrides: `~/.diabetes-data/nightscout/config.env` (see `nightscout/config.env.example`). Upgrading Nightscout requires updating the exact commit, source hashes and dependency profile together, then passing the upstream runtime CI job. The installer audits a new profile-hashed runtime before switching it; the old runtime stays under `runtime/` for rollback. See [runtime profile](nightscout/RUNTIME.md).
 
 | Path | What |
 | --- | --- |

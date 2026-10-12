@@ -35,3 +35,7 @@ The privacy gate also checks raw Git author/committer headers and commit message
 The code gate includes checksum-pinned ShellCheck at warning/error threshold for shell files, including extensionless wrappers, and Clang Static Analyzer for C/Objective-C helpers on macOS. Watchdog has a dedicated native-security CI job; Linux reports the platform handoff explicitly. No source language is silently claimed as analyzed by Semgrep. Add language-appropriate checks before adding a new runtime language. All scanners run locally and report locations/rule names without source snippets. Runtime downloads and separately installed language environments require their own dependency audit; npm audit of the parent manifest alone does not cover them.
 
 October 12 review: the two Nightscout SHA-1 protocol exceptions retain identical finding bytes, reason and expiry. Their exact source hashes and line locations were updated only after verifying that the writer file differs solely by owner-only umask initialization. No new finding was accepted.
+
+## Separately installed Nightscout runtime
+
+The checked-in nightscout/runtime-profile is audited independently of the parent npm package. Production high/critical findings have been remediated without exceptions. The installer applies verified source compatibility replacements, builds the upstream application, audits, then removes development dependencies before switching the managed runtime. See REVIEW.md and nightscout/RUNTIME.md for scope and remaining lower-severity advisories.

@@ -1,0 +1,9 @@
+{
+  "tag": "v15.0.8",
+  "commit": "92d0834219aa771b5837dbcbf1baeb839a200cf6",
+  "files": {
+    "lib/api/entries/index.js": "ebd28e8726f51d4c8ce1e68c808ffb11300a53bfa8cfee96a220124b7918059f",
+    "lib/server/loop.js": "8f437f5871de27abe320c12986be880741c9ad080f3f1a98fe31c0614882c49f",
+    "tests/loop-server.test.js": "2319527d032742628c7886cbc76cfdbf21785359e87ba27216268bca75614de8"
+  }
+}

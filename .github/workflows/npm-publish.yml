@@ -13,6 +13,9 @@ on:
     types: [published]
 
 jobs:
+  nightscout:
+    uses: ./.github/workflows/nightscout.yml
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +33,7 @@ jobs:
 
   publish-npm:
     if: github.event_name == 'release'
-    needs: test
+    needs: [test, nightscout]
     runs-on: ubuntu-latest
     permissions:
       contents: read

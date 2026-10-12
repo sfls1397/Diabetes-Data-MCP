@@ -1,0 +1,33 @@
+name: Nightscout runtime
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  nightscout:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Prepare exact upstream source with the reviewed profile
+        run: |
+          git clone --depth 1 --branch v15.0.8 https://github.com/nightscout/cgm-remote-monitor.git "$RUNNER_TEMP/nightscout"
+          node nightscout/prepare-runtime.mjs "$RUNNER_TEMP/nightscout"
+      - name: Install, build, audit and test Nightscout on an isolated database
+        working-directory: ${{ runner.temp }}/nightscout
+        run: |
+          npm ci --allow-remote=all --no-audit --no-fund
+          node "$GITHUB_WORKSPACE/nightscout/sanitize-connect.mjs" .
+          npm audit --omit=dev --audit-level=high
+          ./node_modules/.bin/env-cmd -f tests/ci.test.env ./node_modules/.bin/mocha --timeout 30000 --require tests/hooks.js --exit tests/*.test.js
+          npm prune --omit=dev --ignore-scripts --no-audit --no-fund
+          node "$GITHUB_WORKSPACE/nightscout/sanitize-connect.mjs" .
+          npm audit --omit=dev --audit-level=high
