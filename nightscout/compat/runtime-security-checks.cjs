@@ -4,6 +4,26 @@ const expand = require('../lib/api/shared/expand-pattern');
 const apn = require('../lib/server/apn-token');
 
 describe('Diabetes runtime security replacements', function () {
+  it('suppresses XState credential context logs in parent and invoked actors', function () {
+    const fs = require('node:fs');
+    const { createMachine, interpret, actions } = require('xstate');
+    const safeConsole = require('nightscout-connect/diabetes-safe-console');
+    assert.ok(fs.readFileSync(require.resolve('nightscout-connect'), 'utf8')
+      .includes('interpret(things, { logger: console.log })'));
+    const child = createMachine({ id: 'privacy-child', initial: 'ready', context: { password: 'fixture-private' },
+      states: { ready: { entry: actions.log() } } });
+    const parent = createMachine({ id: 'privacy-parent', initial: 'ready', context: { session: 'fixture-private' },
+      states: { ready: { entry: actions.log(), invoke: { src: child } } } });
+    const output = [];
+    const original = console.log;
+    console.log = (...args) => output.push(args);
+    try {
+      const actor = interpret(parent, { logger: safeConsole.log });
+      actor.start();
+      actor.stop();
+      assert.deepEqual(output, []);
+    } finally { console.log = original; }
+  });
   it('preserves padded date and hour ranges and alternatives', function () {
     assert.deepEqual(expand('20{24..26}-10-T{08..09}'), [
       '2024-10-T08', '2024-10-T09', '2025-10-T08', '2025-10-T09', '2026-10-T08', '2026-10-T09'

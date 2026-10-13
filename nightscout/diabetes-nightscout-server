@@ -38,7 +38,13 @@ if [ "$BRIDGE_ENABLE" = 1 ]; then
   BRIDGE_PASSWORD=$(security find-generic-password -s diabetes-nightscout -a dexcom-password -w 2>/dev/null) || {
     echo "BRIDGE_ENABLE=1 but Keychain diabetes-nightscout/dexcom-username or dexcom-password missing" >&2; exit 2; }
   export BRIDGE_USER_NAME BRIDGE_PASSWORD BRIDGE_SERVER
-  ENABLE="$ENABLE bridge"
+  # v15 migrates BRIDGE to connect; enable its settings namespace so explicit
+  # regions are read. US/EU are legacy enums, not literal DNS hostnames.
+  case "$BRIDGE_SERVER" in
+    US|us) CONNECT_SHARE_REGION=${CONNECT_SHARE_REGION:-us}; export CONNECT_SHARE_REGION ;;
+    EU|eu) CONNECT_SHARE_REGION=${CONNECT_SHARE_REGION:-ous}; export CONNECT_SHARE_REGION ;;
+  esac
+  ENABLE="$ENABLE bridge connect"
   echo "bridge: ON (Dexcom Share, server $BRIDGE_SERVER)"
 else
   echo "bridge: OFF"
