@@ -20,6 +20,19 @@ SUPPORTED_VERSION = "3.0.3"
 log = logging.getLogger("diabetes.combo_bolus")
 
 
+class AuthLogFilter(logging.Filter):
+    """The upstream API logs decoded tokens and raw authentication responses."""
+    def filter(self, record):
+        if record.levelno < logging.WARNING:
+            return False
+        record.msg = 'Tandem authentication: %s' % record.levelname.lower()
+        record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return True
+
+
 def install():
     """Hook ProcessBolus.process. Returns True when the mapping is active."""
     from importlib.metadata import version
@@ -31,6 +44,9 @@ def install():
         print(msg, file=sys.stderr)
         return False
     from tconnectsync.sync.tandemsource import process_bolus
+    auth_log = logging.getLogger('tconnectsync.api.tandemsource')
+    if not any(isinstance(item, AuthLogFilter) for item in auth_log.filters):
+        auth_log.addFilter(AuthLogFilter())
 
     if getattr(process_bolus.ProcessBolus.process, "_diabetes_combo", False):
         return True
@@ -54,7 +70,13 @@ def main():
     install()
     from tconnectsync import main as tconnect_main
 
-    return tconnect_main()
+    try:
+        return tconnect_main()
+    except Exception:
+        # API exceptions may contain the raw authentication response. Keep the
+        # scheduled job nonzero without serializing it or a credential traceback.
+        print('Tandem sync failed; private response details omitted', file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

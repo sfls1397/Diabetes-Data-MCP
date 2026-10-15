@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from contextlib import redirect_stderr
+from io import StringIO
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -62,6 +64,24 @@ class RuntimeTests(unittest.TestCase):
     def test_combo_hook_preserved(self):
         self.assertTrue(diabetes_tconnectsync.install())
         self.assertTrue(diabetes_tconnectsync.install())
+
+    def test_authentication_log_values_and_tracebacks_never_escape(self):
+        filt = diabetes_tconnectsync.AuthLogFilter()
+        info = logging.LogRecord('fixture', logging.INFO, '', 1, 'fixture-private-token', (), None)
+        self.assertFalse(filt.filter(info))
+        record = logging.LogRecord('fixture', logging.ERROR, '', 1, '%s', ('fixture-private-token',),
+                                   (ValueError, ValueError('fixture-private-token'), None))
+        self.assertTrue(filt.filter(record))
+        self.assertEqual(record.getMessage(), 'Tandem authentication: error')
+        self.assertIsNone(record.exc_info)
+        self.assertIsNone(record.exc_text)
+
+    def test_private_exception_is_nonzero_and_masked(self):
+        output = StringIO()
+        with patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=ValueError('fixture-private-token')):
+            with redirect_stderr(output):
+                self.assertEqual(diabetes_tconnectsync.main(), 1)
+        self.assertNotIn('fixture-private-token', output.getvalue())
 
     def test_advisory_outage_blocks(self):
         with patch.object(audit.urllib.request, 'urlopen', side_effect=OSError('fixture outage')):

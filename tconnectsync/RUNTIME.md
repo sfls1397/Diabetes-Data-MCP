@@ -26,6 +26,10 @@ still targets exactly tconnectsync 3.0.3. Offline tests exercise its actual
 Tandem JWT verification with valid tokens and invalid signature/issuer/expiry
 cases, without logging in or uploading pump data.
 
+The wrapper suppresses the upstream authentication module's token/claim dumps
+and converts its warnings/errors to generic signals. Unhandled sync exceptions
+remain nonzero without printing raw authentication response bodies or tracebacks.
+
 Full/staged repository gates and the installer audit this graph against OSV.
 Any known advisory, outage, malformed response or partial result blocks the
 gate. Only public dependency names and versions are submitted; no credentials,
