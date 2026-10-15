@@ -19,7 +19,7 @@ nightscout-connect's Dexcom Share reader. Only one live instance polls Share.
 The parent dependency gate audits this separate production dependency graph in
 full and staged scans. CI builds and runs the upstream suite on an isolated
 Mongo database; the npm release waits for that job. Production audits have no
-high/critical exceptions. Lower-severity upstream advisories remain visible;
+advisory exceptions. The complete production graph must have zero known advisories;
 development-only lint/watch dependencies are pruned from the installed runtime.
 
 `install-runtime.sh` builds a new directory identified by the profile hash,

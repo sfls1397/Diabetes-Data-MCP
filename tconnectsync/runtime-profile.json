@@ -1,0 +1,15 @@
+{
+  "python": {
+    "release": "20261013",
+    "name": "cpython-3.13.16+20261013-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.13.16%2B20261013-aarch64-apple-darwin-install_only_stripped.tar.gz",
+    "sha256": "16a5332fb0dcb77f163fc8f8cbccd95be1644cc53e68e5d2a79f50afd6680a0e",
+    "version": "3.13.16"
+  },
+  "wheel": {
+    "url": "https://files.pythonhosted.org/packages/4d/a4/2e60fa86aeb59eaeb35b49c6d8f99efbc1913d505ff6abb8aa9479049b6b/tconnectsync-3.0.3-py3-none-any.whl",
+    "filename": "tconnectsync-3.0.3-py3-none-any.whl",
+    "sha256": "9f52919a326877812d4c7eb21b4440c1a8b81b25a2afe387f7dfbb1d9500d2e9"
+  },
+  "pyjwt": "2.15.1"
+}

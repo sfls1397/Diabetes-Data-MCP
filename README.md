@@ -20,7 +20,7 @@ Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm inst
 
 Ports on the Mini: ResMed 8420, Apple Tools 8421, Network Tools 8422, SimpleFIN 8423, **Diabetes MCP 8424**, **Diabetes Nightscout 8425**. If 8424 is taken, `serve` binds the next free port above it and logs `preferred port 8424 is in use; listening on http://<host>:<port>/mcp`. Point clients at the logged URL.
 
-Requires **Node.js 22.5+** (`node:sqlite`, no native addon) and macOS `/usr/bin/python3` (3.9+) for the sync.
+Requires **Node.js 22.12+** (`node:sqlite`, no native addon) and macOS `/usr/bin/python3` (3.9+) for the SQLite sync. The Tandem installer prepares its own checksum-pinned Python 3.13 runtime with hash-locked, audited dependencies; it does not change system Python. See [Python runtime](tconnectsync/RUNTIME.md).
 
 ## Conventions
 

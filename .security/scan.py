@@ -58,8 +58,8 @@ def exceptions(policy, kind):
     return accepted
 
 
-def audit(root, policy):
-    result = command(['npm', 'audit', '--omit=dev', '--audit-level=high', '--json'], root)
+def audit(root, policy, all_severities=False):
+    result = command(['npm', 'audit', '--omit=dev', '--audit-level=' + ('low' if all_severities else 'high'), '--json'], root)
     data = json.loads(result.stdout)
     if data.get('error') or result.returncode not in (0, 1) or 'vulnerabilities' not in data:
         raise RuntimeError('npm audit could not complete; check registry connectivity')
@@ -67,7 +67,7 @@ def audit(root, policy):
     accepted = exceptions(policy, 'audit')
     blocked = 0
     for name, item in data['vulnerabilities'].items():
-        if item['severity'] not in ('high', 'critical'):
+        if not all_severities and item['severity'] not in ('high', 'critical'):
             continue
         key = audit_key(name, item, lock)
         known = any(x['package'] == name and x['sha256'] == key for x in accepted)
@@ -77,7 +77,14 @@ def audit(root, policy):
             blocked += 1
     if blocked:
         raise RuntimeError('New or changed high/critical dependency findings block this gate')
-    print('npm audit gate PASS (production dependencies; high threshold)')
+    print('npm audit gate PASS (production dependencies; %s threshold)' % ('low' if all_severities else 'high'))
+
+
+def python_audit(root):
+    result = command([sys.executable, 'tconnectsync/audit.py'], root)
+    if result.returncode:
+        raise RuntimeError('Python dependency audit failed or found advisories')
+    print('Python dependency audit PASS (locked runtime; zero known advisories)')
 
 
 def semgrep(root, policy, targets=None):
@@ -151,7 +158,8 @@ def full():
         runtime = snapshot / 'nightscout/runtime-profile'
         if runtime.is_dir() or (snapshot / 'nightscout/install-runtime.sh').is_file():
             print('Auditing the separately installed Nightscout runtime profile')
-            audit(runtime, {})
+            audit(runtime, {}, True)
+        python_audit(snapshot)
         normalize_parser(snapshot)
         semgrep(snapshot, reviewed)
         language_scan(snapshot)
@@ -168,6 +176,9 @@ def staged():
                             'nightscout/runtime-profile/package-lock.json']
         if any(x.startswith('nightscout/') for x in changed):
             required += runtime_metadata
+        if any(x.startswith('tconnectsync/') for x in changed):
+            required += ['tconnectsync/audit.py', 'tconnectsync/requirements.lock',
+                         'tconnectsync/runtime-profile.json']
         tooling = [os.fsdecode(p) for p in git(['ls-files', '-z', '.security']).split(b'\0') if p]
         for name in dict.fromkeys(changed + required + tooling):
             path = Path(name)
@@ -193,7 +204,9 @@ def staged():
         if any(x.startswith('nightscout/') for x in changed):
             runtime = snapshot / 'nightscout/runtime-profile'
             print('Auditing staged Nightscout runtime metadata')
-            audit(runtime, {})
+            audit(runtime, {}, True)
+        if any(x.startswith('tconnectsync/') for x in changed):
+            python_audit(snapshot)
         # Include tests and scripts; only generated/vendor paths are ignored.
         targets = [x for x in changed if (snapshot / x).is_file()
                    and Path(x).suffix in ('.js', '.cjs', '.mjs', '.jsx', '.ts', '.tsx', '.py')]

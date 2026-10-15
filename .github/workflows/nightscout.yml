@@ -26,8 +26,8 @@ jobs:
         run: |
           npm ci --allow-remote=all --no-audit --no-fund
           node "$GITHUB_WORKSPACE/nightscout/sanitize-connect.mjs" .
-          npm audit --omit=dev --audit-level=high
+          npm audit --omit=dev --audit-level=low
           ./node_modules/.bin/env-cmd -f tests/ci.test.env ./node_modules/.bin/mocha --timeout 30000 --require tests/hooks.js --exit tests/*.test.js
           npm prune --omit=dev --ignore-scripts --no-audit --no-fund
           node "$GITHUB_WORKSPACE/nightscout/sanitize-connect.mjs" .
-          npm audit --omit=dev --audit-level=high
+          npm audit --omit=dev --audit-level=low

@@ -4,6 +4,7 @@
   "files": {
     "lib/api/entries/index.js": "ebd28e8726f51d4c8ce1e68c808ffb11300a53bfa8cfee96a220124b7918059f",
     "lib/server/loop.js": "8f437f5871de27abe320c12986be880741c9ad080f3f1a98fe31c0614882c49f",
-    "tests/loop-server.test.js": "2319527d032742628c7886cbc76cfdbf21785359e87ba27216268bca75614de8"
+    "tests/loop-server.test.js": "2319527d032742628c7886cbc76cfdbf21785359e87ba27216268bca75614de8",
+    "tests/fixtures/benv-shim.js": "8501d19ac8dc1426f383aeac5eee9c1b7547dab8b5444f7c7db21d8c08844101"
   }
 }

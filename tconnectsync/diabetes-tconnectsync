@@ -25,7 +25,7 @@ export TCONNECT_EMAIL TCONNECT_PASSWORD PUMP_SERIAL_NUMBER NS_SECRET
 export NS_URL=${NS_URL:-http://127.0.0.1:8425}
 export TCONNECT_REGION=${TCONNECT_REGION:-US}
 export TIMEZONE_NAME=${TIMEZONE_NAME:-America/Chicago}
-export PYTHONWARNINGS=ignore   # urllib3 LibreSSL notice on macOS system Python
+# The managed Python runtime uses its own supported OpenSSL.
 
 cd "$HOME_DIR"
 if [ "${1:-}" = enrich ]; then

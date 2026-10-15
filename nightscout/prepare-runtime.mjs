@@ -25,7 +25,13 @@ const changes = {
     "const expand = require('../shared/expand-pattern');"
   ],
   'lib/server/loop.js': ["require('@parse/node-apn')", "require('./apn-token')"],
-  'tests/loop-server.test.js': ["require('@parse/node-apn')", "require('../lib/server/apn-token')"]
+  'tests/loop-server.test.js': ["require('@parse/node-apn')", "require('../lib/server/apn-token')"],
+  // jsdom delegates base64 to Node globals. Mirroring its wrapper back onto
+  // those globals recurses; retain Node's browser-compatible buffer functions.
+  'tests/fixtures/benv-shim.js': [
+    'setGlobal(name, activeEnv.window[name] || function noop () {});',
+    "setGlobal(name, name === 'btoa' ? require('node:buffer').btoa : name === 'atob' ? require('node:buffer').atob : activeEnv.window[name] || function noop () {});"
+  ]
 };
 for (const [name, [before, after]] of Object.entries(changes)) {
   const file = path.join(target, name);

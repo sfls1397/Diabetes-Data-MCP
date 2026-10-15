@@ -1,0 +1,21 @@
+name: Python runtime
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  python-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.16'
+      - name: Install and audit the locked Python graph in isolation
+        env:
+          DIABETES_TCONNECTSYNC_HOME: ${{ runner.temp }}/tconnectsync
+        run: |
+          export DIABETES_TCONNECTSYNC_PYTHON="$(command -v python3)"
+          sh tconnectsync/install.sh
+          sh tconnectsync/install.sh
+          "$DIABETES_TCONNECTSYNC_HOME/venv/bin/python" tconnectsync/test_runtime.py
