@@ -87,7 +87,7 @@
     }
   },
   "engines": {
-    "node": ">=20.x",
+    "node": ">=22.12.0",
     "npm": ">=10.x"
   },
   "dependencies": {
@@ -139,7 +139,7 @@
     "process": "^0.11.10",
     "pushover-notifications": "^1.2.2",
     "random-token": "0.0.8",
-    "sanitize-html": "2.17.5",
+    "sanitize-html": "2.18.1",
     "semver": "^6.3.0",
     "share2nightscout-bridge": "^0.2.12",
     "shiro-trie": "^0.4.9",
@@ -147,7 +147,7 @@
     "socket.io": "~4.8.3",
     "socket.io-client": "^4.8.3",
     "stream-browserify": "^3.0.0",
-    "style-loader": "^0.23.1",
+    "style-loader": "4.0.0",
     "swagger-ui-dist": "^4.13.2",
     "swagger-ui-express": "^4.5.0",
     "traverse": "^0.6.6",
@@ -185,10 +185,10 @@
     "lodash": "4.18.1",
     "ip-address": "10.7.4",
     "postcss": "8.5.29",
-    "qs": "6.15.1",
+    "qs": "6.16.1",
     "flatted": "3.4.2",
     "picomatch": "2.3.2",
-    "ajv@^6.0.0": "6.12.6",
+    "ajv@^6.0.0": "6.14.0",
     "ajv@^8.0.0": "8.18.0",
     "socket.io-parser": "4.2.7",
     "filelist": {
@@ -242,6 +242,7 @@
       "tough-cookie": "4.1.4"
     },
     "undici@^5.0.0": "6.28.1",
-    "@fastify/busboy": "3.2.2"
+    "@fastify/busboy": "3.2.2",
+    "request": "npm:@cypress/request@4.0.1"
   }
 }

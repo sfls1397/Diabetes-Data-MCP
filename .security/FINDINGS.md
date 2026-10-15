@@ -38,4 +38,8 @@ October 12 review: the two Nightscout SHA-1 protocol exceptions retain identical
 
 ## Separately installed Nightscout runtime
 
-The checked-in nightscout/runtime-profile is audited independently of the parent npm package. Production high/critical findings have been remediated without exceptions. The installer applies verified source compatibility replacements, builds the upstream application, audits, then removes development dependencies before switching the managed runtime. See REVIEW.md and nightscout/RUNTIME.md for scope and remaining lower-severity advisories.
+The checked-in nightscout/runtime-profile is audited independently of the parent npm package. Its complete production graph must have zero known advisories, including low/moderate findings, without exceptions. The installer applies verified source compatibility replacements, builds the upstream application, audits, then removes development dependencies before switching the managed runtime. See REVIEW.md and nightscout/RUNTIME.md for scope.
+
+## Separately installed Python runtime
+
+The tconnectsync installer uses a checksum-pinned managed Python 3.13 runtime and hash-locked PyPI artifacts. Only the verified upstream wheel's PyJWT dependency metadata changes; all application bytes and the tconnectsync 3.0.3 combo hook remain unchanged. Full and staged gates audit the locked Python graph through OSV; installation checks the actual graph, pip consistency, zero known advisories and the combo hook before switching the runtime. Missing, malformed, incomplete or failed advisory responses block activation. The reusable Python CI job checks installation, repeat installation and offline Tandem JWT verification; publication requires it.

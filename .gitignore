@@ -9,3 +9,4 @@ coverage/
 .vitest/
 *.tsbuildinfo
 *.archive.gz
+__pycache__/

@@ -16,6 +16,9 @@ jobs:
   nightscout:
     uses: ./.github/workflows/nightscout.yml
 
+  python-runtime:
+    uses: ./.github/workflows/python-runtime.yml
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +36,7 @@ jobs:
 
   publish-npm:
     if: github.event_name == 'release'
-    needs: [test, nightscout]
+    needs: [test, nightscout, python-runtime]
     runs-on: ubuntu-latest
     permissions:
       contents: read

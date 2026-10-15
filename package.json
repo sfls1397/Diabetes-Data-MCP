@@ -27,7 +27,7 @@
     "macos"
   ],
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.12.0"
   },
   "os": [
     "darwin",

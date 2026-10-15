@@ -70,7 +70,7 @@ if [ ! -f "$NS_DIR/.diabetes-runtime-ready" ]; then
   test "$(git -C "$tmp/source" rev-parse HEAD)" = "$NS_COMMIT" || { echo "Nightscout commit mismatch" >&2; exit 1; }
   "$NODE" "$SCRIPT_DIR/prepare-runtime.mjs" "$tmp/source"
   (cd "$tmp/source" && PATH="$NODE_DIR:$PATH" npm ci --allow-remote=all --no-audit --no-fund --loglevel=error &&
-    PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=high &&
+    PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=low &&
     PATH="$NODE_DIR:$PATH" npm prune --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error &&
     "$NODE" "$SCRIPT_DIR/sanitize-connect.mjs" "$tmp/source")
   printf '%s\n' "$PROFILE_SHA" > "$tmp/source/.diabetes-runtime-ready"
@@ -79,7 +79,7 @@ if [ ! -f "$NS_DIR/.diabetes-runtime-ready" ]; then
   trap - EXIT HUP INT TERM
 fi
 test "$(cat "$NS_DIR/.diabetes-runtime-ready")" = "$PROFILE_SHA" || { echo "Nightscout runtime marker mismatch" >&2; exit 1; }
-(cd "$NS_DIR" && PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=high)
+(cd "$NS_DIR" && PATH="$NODE_DIR:$PATH" npm audit --omit=dev --audit-level=low)
 ln -sfn "$NS_NAME" "$RT/nightscout"
 
 echo "mongod:       $("$RT/mongodb/bin/mongod" --version | head -1)"
