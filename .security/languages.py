@@ -36,7 +36,7 @@ def check(root, targets=None, native_required=False):
     if native and platform.system() != 'Darwin':
         if native_required:
             raise RuntimeError('Native helper analysis requires macOS')
-        print('Native helpers: macOS analysis runs in the dedicated required native-security CI job')
+        print('Native helpers: macOS analysis runs in the macOS local gate (.security/local-gate.py)')
     elif native:
         if not shutil.which('clang'):
             raise RuntimeError('Clang missing')

@@ -162,7 +162,7 @@ sh "$PKG/examples/install-launchagents.sh" "$(command -v node)" nightscout   # m
 sh "$PKG/nightscout/prove.sh"                                                # read-only: bind, 401/200, newest SGV, counts
 ```
 
-Optional non-secret overrides: `~/.diabetes-data/nightscout/config.env` (see `nightscout/config.env.example`). Upgrading Nightscout requires updating the exact commit, source hashes and dependency profile together, then passing the upstream runtime CI job. The installer audits a new profile-hashed runtime before switching it; the old runtime stays under `runtime/` for rollback. See [runtime profile](nightscout/RUNTIME.md).
+Optional non-secret overrides: `~/.diabetes-data/nightscout/config.env` (see `nightscout/config.env.example`). Upgrading Nightscout requires updating the exact commit, source hashes and dependency profile together, then passing the upstream runtime test (`scripts/nightscout-local-test.sh` in the local gate). The installer audits a new profile-hashed runtime before switching it; the old runtime stays under `runtime/` for rollback. See [runtime profile](nightscout/RUNTIME.md).
 
 | Path | What |
 | --- | --- |
