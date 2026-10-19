@@ -65,19 +65,31 @@ class Standard(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 languages.check(root, native_required=True)
 
-    def test_merge_checks_fail_closed(self):
-        def item(name, ident=1, status='completed', conclusion='success', slug='github-actions'):
-            return {'name': name, 'id': ident, 'status': status, 'conclusion': conclusion, 'app': {'slug': slug}}
-        expected = {'gitleaks', 'security'}
-        good = [item('gitleaks'), item('security')]
-        self.assertTrue(merge.checks_pass(good, expected))
-        self.assertFalse(merge.checks_pass(good[:1], expected))
-        self.assertFalse(merge.checks_pass([item('gitleaks'), item('security', status='in_progress')], expected))
-        self.assertFalse(merge.checks_pass([item('gitleaks'), item('security', conclusion='skipped')], expected))
-        self.assertFalse(merge.checks_pass([item('gitleaks'), item('security', slug='untrusted')], expected))
-        self.assertFalse(merge.checks_pass(good + [item('security', ident=2, conclusion='failure')], expected))
-        self.assertTrue(merge.checks_pass(good + [item('publish-npm', conclusion='skipped')], expected))
-        self.assertFalse(merge.checks_pass(good + [item('test', conclusion='skipped')], expected))
+    def test_merge_requires_recorded_local_gate(self):
+        def status(state, ident=1, login='owner', context='local-gate'):
+            return {'context': context, 'id': ident, 'state': state, 'creator': {'login': login}}
+        self.assertTrue(merge.gate_passed([status('success')], 'owner'))
+        self.assertFalse(merge.gate_passed([], 'owner'))
+        self.assertFalse(merge.gate_passed([status('pending')], 'owner'))
+        self.assertFalse(merge.gate_passed([status('failure')], 'owner'))
+        self.assertFalse(merge.gate_passed([status('success', login='someone-else')], 'owner'))
+        self.assertFalse(merge.gate_passed([status('success', context='gitleaks')], 'owner'))
+        self.assertFalse(merge.gate_passed([status('success'), status('failure', ident=2)], 'owner'))
+        self.assertTrue(merge.gate_passed([status('failure'), status('success', ident=2)], 'owner'))
+
+    def test_local_gate_steps_fail_closed(self):
+        runner = module('local_gate', 'local-gate.py')
+        with tempfile.TemporaryDirectory() as temp:
+            tree = Path(temp)
+            (tree / '.security').mkdir()
+            (tree / '.security/local-gate.json').write_text('{"tests": [["npm", "test"]]}')
+            names = [step for step, _ in runner.steps(tree)]
+            for required in ['Gitleaks full history', 'Tests: npm test',
+                             'npm audit (production, high) + offline Semgrep + ShellCheck/Clang']:
+                self.assertIn(required, names)
+            (tree / '.security/local-gate.json').write_text('{"tests": ["npm test"]}')
+            with self.assertRaises(runner.GateError):
+                runner.steps(tree)
 
 
 if __name__ == '__main__':

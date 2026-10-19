@@ -1,0 +1,30 @@
+{
+  "tests": [
+    [
+      "npm",
+      "ci"
+    ],
+    [
+      "npm",
+      "test"
+    ],
+    [
+      "npm",
+      "run",
+      "typecheck"
+    ],
+    [
+      "npm",
+      "run",
+      "build"
+    ],
+    [
+      "sh",
+      "scripts/nightscout-local-test.sh"
+    ],
+    [
+      "sh",
+      "scripts/tconnectsync-local-test.sh"
+    ]
+  ]
+}
