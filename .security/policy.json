@@ -8,7 +8,7 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "1f9c495316268bb04da0542eaf7f57a5deb70dc0f551dee0994b3c39e66b545e",
+      "source_sha256": "2fb71faf6a13f41059a5f40ef1638cac6bd74463fb295055e33ce8f4385e5840",
       "line": 99,
       "column": 35
     },
@@ -19,8 +19,8 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "1f9c495316268bb04da0542eaf7f57a5deb70dc0f551dee0994b3c39e66b545e",
-      "line": 195,
+      "source_sha256": "2fb71faf6a13f41059a5f40ef1638cac6bd74463fb295055e33ce8f4385e5840",
+      "line": 247,
       "column": 12
     },
     {

@@ -25,6 +25,7 @@ import {
   round,
   stringList
 } from "./sql.js";
+import { runGetActiveProfile, runGetProfileAsOf, runGetSettingsVsDelivery, runListProfileChanges } from "./profiles.js";
 
 /** Product rule: time in range is 80–180 mg/dL. Never 70–180. */
 export const TIR_LOW = 80;
@@ -662,6 +663,14 @@ export function callTool(db: DatabaseSync, name: string, args: Record<string, un
         return runGetCoverage(db, args);
       case "query_raw":
         return runQueryRaw(db, args);
+      case "get_active_profile":
+        return runGetActiveProfile(db, args);
+      case "get_profile_as_of":
+        return runGetProfileAsOf(db, args);
+      case "list_profile_changes":
+        return runListProfileChanges(db, args);
+      case "get_settings_vs_delivery":
+        return runGetSettingsVsDelivery(db, args);
       default:
         return errorJson(`Unknown tool: ${name}`);
     }

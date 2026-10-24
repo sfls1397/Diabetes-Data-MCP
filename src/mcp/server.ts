@@ -14,7 +14,8 @@ const INSTRUCTIONS = `Diabetes Data MCP: read-only queries against the local dia
 - All dates and HH:MM times are America/Chicago local. Timestamps are returned as ISO UTC plus a local Chicago time.
 - Time in range is 80-180 mg/dL only (tir_80_180, under_80, over_180 in percent). Never 70-180.
 - Use get_daily_stats / get_weekly_stats for precomputed rollups, get_range_stats for any other window (overnight, meal windows, weekdays), list_sgv / list_treatments for raw rows, get_coverage for gaps, query_raw only as a last resort.
-- Not here: live Nightscout, the active pump profile (I:C, CF, basal schedule), or settings math.`;
+- Pump profile history (carb ratio, sensitivity, basal schedule, targets, DIA, active profile name) is mirrored from Nightscout's profile collection: get_active_profile (now), get_profile_as_of (any past time), list_profile_changes (history), get_settings_vs_delivery (programmed vs delivered basal and carb insulin over a date range, using the profile in force at each moment). Profile history starts at the archive's first profile version; earlier times have no profile. Tables for query_raw: profile_versions, profile_settings, profile_segments, view profile_timeline.
+- Not here: live Nightscout or settings recommendations. Settings judgement stays with the analyst; these tools return numbers only.`;
 
 export function createMcpServer(db: DatabaseSync, dbPath: string): Server {
   const server = new Server(

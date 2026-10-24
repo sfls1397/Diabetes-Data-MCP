@@ -10,7 +10,7 @@ function call(name: string, args: Record<string, unknown> = {}): any {
 }
 
 describe("tool list", () => {
-  it("exposes exactly the 8 locked V1 tools, all read-only", () => {
+  it("exposes the 8 locked V1 tools unchanged, then the 4 profile tools, all read-only", () => {
     expect(TOOL_DEFINITIONS.map((t) => t.name)).toEqual([
       "sync_status",
       "list_sgv",
@@ -19,7 +19,11 @@ describe("tool list", () => {
       "get_weekly_stats",
       "get_range_stats",
       "get_coverage",
-      "query_raw"
+      "query_raw",
+      "get_active_profile",
+      "get_profile_as_of",
+      "list_profile_changes",
+      "get_settings_vs_delivery"
     ]);
     for (const t of TOOL_DEFINITIONS) expect(t.annotations.readOnlyHint).toBe(true);
   });
