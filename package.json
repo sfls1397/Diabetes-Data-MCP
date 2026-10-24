@@ -1,6 +1,6 @@
 {
   "name": "diabetes-data-mcp",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "description": "Mac Mini diabetes data plane: LAN-only Nightscout (LaunchAgents, loopback MongoDB), the Nightscout to SQLite sync, and a read-only bearer-token Streamable HTTP MCP over that archive",
   "type": "module",
   "main": "dist/cli.js",
