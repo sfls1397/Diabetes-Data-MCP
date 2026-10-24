@@ -181,7 +181,7 @@
     "braces": "3.0.3"
   },
   "overrides": {
-    "follow-redirects": "1.16.0",
+    "follow-redirects": "1.16.1",
     "lodash": "4.18.1",
     "ip-address": "10.7.4",
     "postcss": "8.5.29",
@@ -220,7 +220,7 @@
     "compression": "1.8.2",
     "d3-color": "3.1.0",
     "engine.io": "6.6.11",
-    "fast-uri": "3.1.8",
+    "fast-uri": "3.1.9",
     "proxy-addr": "2.0.8",
     "ws": "8.22.0",
     "brace-expansion@^2.0.0": "2.1.7",
@@ -241,7 +241,10 @@
       "axios": "1.20.0",
       "tough-cookie": "4.1.4"
     },
-    "undici@^5.0.0": "6.28.1",
+    "undici@^5.0.0": "6.29.1",
+    "apns2": {
+      "undici": "7.30.1"
+    },
     "@fastify/busboy": "3.2.2",
     "request": "npm:@cypress/request@4.0.1"
   }

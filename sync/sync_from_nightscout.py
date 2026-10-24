@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync Nightscout entries/treatments into the Mac Mini diabetes SQLite archive.
+"""Sync Nightscout entries/treatments/profiles into the Mac Mini diabetes SQLite archive.
 
 Sole writer of ~/.diabetes-data/diabetes.sqlite (LaunchAgent com.diabetes-sqlite.sync,
 every minute via StartInterval=60). Diabetes Data MCP only reads this file.
@@ -164,10 +164,62 @@ CREATE INDEX IF NOT EXISTS idx_tx_created ON treatments(created_at);
 CREATE INDEX IF NOT EXISTS idx_tx_type ON treatments(event_type);
 """
 
+# Pump profile history (added 2026-10-24). One profile_versions row per Nightscout
+# profile document (tconnectsync PROFILES uploads a new document whenever the pump's
+# settings or active profile change). Each document carries every named profile in
+# its store; defaultProfile is the one active from start_ms until the next version.
+PROFILE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS profile_versions (
+  id TEXT PRIMARY KEY,
+  start_ms INTEGER NOT NULL,
+  start_date TEXT NOT NULL,
+  created_at TEXT,
+  active_profile TEXT,
+  entered_by TEXT,
+  profile_names TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL,
+  raw_json TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  source_deleted_at TEXT
+);
+CREATE TABLE IF NOT EXISTS profile_settings (
+  version_id TEXT NOT NULL REFERENCES profile_versions(id) ON DELETE CASCADE,
+  profile_name TEXT NOT NULL,
+  is_active INTEGER NOT NULL,
+  units TEXT,
+  timezone TEXT,
+  dia_hours REAL,
+  carbs_hr REAL,
+  delay_min REAL,
+  PRIMARY KEY (version_id, profile_name)
+);
+CREATE TABLE IF NOT EXISTS profile_segments (
+  version_id TEXT NOT NULL REFERENCES profile_versions(id) ON DELETE CASCADE,
+  profile_name TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('carbratio','sens','basal','target_low','target_high')),
+  seq INTEGER NOT NULL,
+  start_sec INTEGER NOT NULL,
+  end_sec INTEGER NOT NULL,
+  time TEXT NOT NULL,
+  value REAL,
+  PRIMARY KEY (version_id, profile_name, kind, seq)
+);
+CREATE INDEX IF NOT EXISTS idx_profile_versions_start ON profile_versions(start_ms);
+CREATE VIEW IF NOT EXISTS profile_timeline AS
+  SELECT id, start_ms,
+         LEAD(start_ms) OVER (ORDER BY start_ms, id) AS end_ms,
+         start_date, active_profile, entered_by
+  FROM profile_versions
+  WHERE source_deleted_at IS NULL;
+"""
+PROFILE_KINDS = ("carbratio", "sens", "basal", "target_low", "target_high")
+
 
 def init_db(conn: sqlite3.Connection) -> None:
     """Create tables/indexes if missing. Safe on every run; portable Mac Mini bootstrap."""
     conn.executescript(SCHEMA_SQL)
+    conn.executescript(PROFILE_SCHEMA_SQL)
     # treatments.insulin_effective: units this row adds to insulin totals (see
     # apply_combo_effective). Added 2026-10-03; NULL until the first run fills it.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(treatments)")}
@@ -643,7 +695,227 @@ def recompute_range(conn: sqlite3.Connection, source: str = "Nightscout API", si
     return count
 
 
-MODES = ("sync", "backfill", "entries", "treatments", "stats", "recompute", "check")
+# ---------------------------------------------------------------------------
+# Pump profile history (Nightscout profile collection -> profile_* tables)
+
+# A routine run re-reads the newest documents (Nightscout's own default page size), so
+# a new version or an in-place edit of a recent one lands within a minute. The whole
+# collection is re-read when the table is empty, once per local day, and in backfill /
+# profiles modes; only those full walks can see that a document was deleted upstream.
+PROFILE_RECENT = int(os.environ.get("DIABETES_SYNC_PROFILE_RECENT", "10"))
+PROFILE_FULL_LIMIT = 100_000
+
+
+def _num(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        out = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
+
+
+def _segment_start(seg: dict) -> int | None:
+    sec = seg.get("timeAsSeconds")
+    if isinstance(sec, (int, float)) and not isinstance(sec, bool) and 0 <= sec < 86400:
+        return int(sec)
+    parts = str(seg.get("time") or "").split(":")
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+        h, m = int(parts[0]), int(parts[1])
+        if 0 <= h < 24 and 0 <= m < 60:
+            return h * 3600 + m * 60
+    return None
+
+
+def schedule_segments(entries: object) -> list[tuple[int, int, str, float | None]]:
+    """A Nightscout schedule -> [(start_sec, end_sec, time, value)], local seconds of day.
+
+    end_sec is the next segment's start (86400 for the last). Like Nightscout's own
+    lookup, the first segment also covers the time before its start, so a schedule
+    always spans the whole day. A repeated start keeps the later entry."""
+    if not isinstance(entries, list):
+        return []
+    by_start: dict[int, tuple[str, float | None]] = {}
+    for seg in entries:
+        if not isinstance(seg, dict):
+            continue
+        start = _segment_start(seg)
+        if start is None:
+            continue
+        time_text = str(seg.get("time") or f"{start // 3600:02d}:{start % 3600 // 60:02d}")
+        by_start[start] = (time_text, _num(seg.get("value")))
+    starts = sorted(by_start)
+    out = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else 86400
+        time_text, value = by_start[start]
+        out.append((0 if i == 0 else start, end, time_text, value))
+    return out
+
+
+def _doc_start(doc: dict) -> tuple[int, str] | None:
+    for key in ("startDate", "created_at"):
+        raw = doc.get(key)
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            return int(raw), datetime.fromtimestamp(raw / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        if isinstance(raw, str) and raw.strip():
+            parsed = _parse_iso(raw.strip())
+            if parsed is None:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)  # Nightscout convention: no zone = UTC
+            return int(parsed.timestamp() * 1000), raw.strip()
+    return None
+
+
+def parse_profile_doc(doc: object) -> dict | None:
+    """One Nightscout profile document -> version, settings and segment rows (None if unusable)."""
+    if not isinstance(doc, dict):
+        return None
+    pid = doc.get("_id")
+    if isinstance(pid, dict):
+        pid = pid.get("$oid")
+    start = _doc_start(doc)
+    if not pid or start is None:
+        return None
+    store = doc.get("store") if isinstance(doc.get("store"), dict) else {}
+    active = doc.get("defaultProfile")
+    active = str(active) if active is not None else None
+    raw = json.dumps(doc, separators=(",", ":"), sort_keys=True)
+    settings = []
+    segments = []
+    for name, prof in store.items():
+        if not isinstance(prof, dict):
+            continue
+        settings.append((
+            str(name),
+            1 if str(name) == active else 0,
+            prof.get("units"),
+            prof.get("timezone"),
+            _num(prof.get("dia")),
+            _num(prof.get("carbs_hr")),
+            _num(prof.get("delay")),
+        ))
+        for kind in PROFILE_KINDS:
+            for seq, (start_sec, end_sec, time_text, value) in enumerate(schedule_segments(prof.get(kind))):
+                segments.append((str(name), kind, seq, start_sec, end_sec, time_text, value))
+    return {
+        "id": str(pid),
+        "start_ms": start[0],
+        "start_date": start[1],
+        "created_at": doc.get("created_at") if isinstance(doc.get("created_at"), str) else None,
+        "active_profile": active,
+        "entered_by": doc.get("enteredBy"),
+        "profile_names": json.dumps([s[0] for s in settings], separators=(",", ":")),
+        "sha": hashlib.sha256(raw.encode()).hexdigest(),
+        "raw_json": raw,
+        "settings": settings,
+        "segments": segments,
+    }
+
+
+def upsert_profile_docs(conn: sqlite3.Connection, docs: list, now: str) -> tuple[int, int, set]:
+    """Upsert by Nightscout _id. Unchanged documents (same content hash) are not rewritten,
+    so repeat runs write nothing. Returns (versions changed, documents skipped, ids seen)."""
+    changed = 0
+    skipped = 0
+    seen: set = set()
+    for doc in docs:
+        v = parse_profile_doc(doc)
+        if v is None:
+            skipped += 1
+            continue
+        seen.add(v["id"])
+        row = conn.execute(
+            "SELECT content_sha256, source_deleted_at FROM profile_versions WHERE id=?", (v["id"],)
+        ).fetchone()
+        if row is not None and row["content_sha256"] == v["sha"]:
+            if row["source_deleted_at"] is not None:
+                conn.execute("UPDATE profile_versions SET source_deleted_at=NULL, updated_at=? WHERE id=?", (now, v["id"]))
+                changed += 1
+            continue
+        conn.execute(
+            """INSERT INTO profile_versions(id,start_ms,start_date,created_at,active_profile,entered_by,profile_names,
+                 content_sha256,raw_json,first_seen_at,updated_at,source_deleted_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)
+               ON CONFLICT(id) DO UPDATE SET start_ms=excluded.start_ms, start_date=excluded.start_date,
+                 created_at=excluded.created_at, active_profile=excluded.active_profile, entered_by=excluded.entered_by,
+                 profile_names=excluded.profile_names, content_sha256=excluded.content_sha256, raw_json=excluded.raw_json,
+                 updated_at=excluded.updated_at, source_deleted_at=NULL""",
+            (v["id"], v["start_ms"], v["start_date"], v["created_at"], v["active_profile"], v["entered_by"],
+             v["profile_names"], v["sha"], v["raw_json"], now, now),
+        )
+        conn.execute("DELETE FROM profile_settings WHERE version_id=?", (v["id"],))
+        conn.execute("DELETE FROM profile_segments WHERE version_id=?", (v["id"],))
+        conn.executemany(
+            """INSERT INTO profile_settings(version_id,profile_name,is_active,units,timezone,dia_hours,carbs_hr,delay_min)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [(v["id"], *s) for s in v["settings"]],
+        )
+        conn.executemany(
+            """INSERT INTO profile_segments(version_id,profile_name,kind,seq,start_sec,end_sec,time,value)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [(v["id"], *s) for s in v["segments"]],
+        )
+        changed += 1
+    return changed, skipped, seen
+
+
+def sync_profiles(conn: sqlite3.Connection, full: bool = False) -> None:
+    """Mirror Nightscout's profile collection (read-only GET /api/v1/profile)."""
+    today = datetime.now(TZ).date().isoformat()
+    have = conn.execute("SELECT COUNT(*) FROM profile_versions").fetchone()[0]
+    full = full or have == 0 or meta_get(conn, "profile_last_full_day") != today
+    limit = PROFILE_FULL_LIMIT if full else PROFILE_RECENT
+    docs = ns_get(ns_query("/api/v1/profile.json", [("count", limit)]))
+    if not isinstance(docs, list):
+        raise ValueError("Nightscout profile list was not a JSON array")
+    if full and len(docs) >= limit:
+        raise ValueError(f"Nightscout returned {len(docs)} profile documents, the walk limit; refusing a partial mirror")
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    changed, skipped, seen = upsert_profile_docs(conn, docs, now)
+    marked = 0
+    if full:
+        if seen:
+            conn.execute("CREATE TEMP TABLE seen_profiles(id TEXT PRIMARY KEY)")
+            conn.executemany("INSERT OR IGNORE INTO seen_profiles(id) VALUES (?)", ((i,) for i in seen))
+            # Kept, not deleted: the archive may be the only copy. Tools ignore marked rows.
+            marked = conn.execute(
+                """UPDATE profile_versions SET source_deleted_at=?, updated_at=?
+                   WHERE source_deleted_at IS NULL AND id NOT IN (SELECT id FROM seen_profiles)""",
+                (now, now),
+            ).rowcount
+            conn.execute("DROP TABLE seen_profiles")
+        elif have:
+            print("WARNING: Nightscout returned no profile documents; archive rows left as they are", file=sys.stderr)
+        meta_set(conn, "profile_last_full_day", today)
+    meta_set(conn, "profile_last_sync_at", now)
+    conn.execute("DELETE FROM meta WHERE key='profile_last_error'")
+    total = conn.execute("SELECT COUNT(*) FROM profile_versions WHERE source_deleted_at IS NULL").fetchone()[0]
+    print(
+        f"profile versions: {len(docs)} read ({'full' if full else 'recent'}), {changed} changed, "
+        f"{marked} marked deleted upstream, {skipped} skipped; total={total}"
+    )
+
+
+def sync_profiles_safely(conn: sqlite3.Connection, full: bool) -> bool:
+    """Profile errors never undo the glucose/treatment sync committed before this step."""
+    try:
+        sync_profiles(conn, full=full)
+        conn.commit()
+        return True
+    except Exception as e:  # noqa: BLE001 - reported (scrubbed) and recorded; the run continues
+        conn.rollback()
+        message = f"{type(e).__name__}: {scrub(str(e))}"
+        print(f"WARNING: profile sync failed ({message})", file=sys.stderr)
+        meta_set(conn, "profile_last_error", f"{datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')} {message}")
+        conn.commit()
+        return False
+
+
+MODES = ("sync", "backfill", "entries", "treatments", "stats", "recompute", "profiles", "check")
+PROFILE_MODES = ("sync", "backfill", "profiles")
 
 # Routine runs (every minute) recompute only the newest days; a full pass runs on
 # an empty daily_stats, once per local day, and in stats/recompute/backfill.
@@ -679,7 +951,7 @@ def stats_since(conn: sqlite3.Connection) -> date | None:
     return datetime.strptime(last, "%Y-%m-%d").date() - timedelta(days=RECOMPUTE_DAYS)
 
 
-def run(mode: str) -> None:
+def run(mode: str) -> int:
     conn = connect()
     try:
         full = mode == "backfill"
@@ -703,15 +975,22 @@ def run(mode: str) -> None:
             print(f"weekly_stats weeks: {weeks}")
             if since is None:
                 meta_set(conn, "last_full_recompute_day", datetime.now(TZ).date().isoformat())
-        meta_set(conn, "last_sync_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
-        meta_set(conn, "last_sync_mode", mode)
-        meta_set(conn, "last_sync_writer", WRITER)
-        sgv_n = conn.execute("SELECT COUNT(*) FROM sgv").fetchone()[0]
-        tx_n = conn.execute("SELECT COUNT(*) FROM treatments").fetchone()[0]
-        print(f"totals: sgv={sgv_n} treatments={tx_n}")
+        if mode != "profiles":
+            # A profiles-only run must not make the glucose archive look freshly synced.
+            meta_set(conn, "last_sync_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+            meta_set(conn, "last_sync_mode", mode)
+            meta_set(conn, "last_sync_writer", WRITER)
+            sgv_n = conn.execute("SELECT COUNT(*) FROM sgv").fetchone()[0]
+            tx_n = conn.execute("SELECT COUNT(*) FROM treatments").fetchone()[0]
+            print(f"totals: sgv={sgv_n} treatments={tx_n}")
         conn.commit()
+        if mode in PROFILE_MODES:
+            ok = sync_profiles_safely(conn, full=mode in ("backfill", "profiles"))
+            if not ok and mode == "profiles":
+                return 1
     finally:
         conn.close()
+    return 0
 
 
 def main() -> int:
@@ -721,7 +1000,7 @@ def main() -> int:
         return 64
     stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     print(f"{stamp} diabetes-sqlite-sync {mode} db={DB_PATH}")
-    network = mode in ("sync", "backfill", "entries", "treatments", "check")
+    network = mode in ("sync", "backfill", "entries", "treatments", "profiles", "check")
     if network:
         # Fail closed before the database is opened or created.
         try:
@@ -740,12 +1019,11 @@ def main() -> int:
             print("SKIP: another sync already running")
             return 0
         try:
-            run(mode)
+            return run(mode)
         except (urllib.error.URLError, OSError, ValueError, sqlite3.Error) as e:
             # Uncommitted rows roll back with the connection; the archive keeps its last good state.
             print(f"ERROR: {type(e).__name__}: {scrub(str(e))}", file=sys.stderr)
             return 1
-    return 0
 
 
 if __name__ == "__main__":

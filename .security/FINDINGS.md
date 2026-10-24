@@ -13,9 +13,9 @@ No production dependency advisories at rollout.
 
 ## Code Findings
 
-- `sync/sync_from_nightscout.py:96`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `sync/sync_from_nightscout.py:99`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
-- `sync/sync_from_nightscout.py:192`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `sync/sync_from_nightscout.py:247`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
 - `tconnectsync/enrich_combos.py:36`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
@@ -35,6 +35,8 @@ The privacy gate also checks raw Git author/committer headers and commit message
 The code gate includes checksum-pinned ShellCheck at warning/error threshold for shell files, including extensionless wrappers, and Clang Static Analyzer for C/Objective-C helpers on macOS. On macOS the local gate (`.security/local-gate.py`) runs the Clang analysis for native helpers; Linux reports the platform handoff explicitly. No source language is silently claimed as analyzed by Semgrep. Add language-appropriate checks before adding a new runtime language. All scanners run locally and report locations/rule names without source snippets. Runtime downloads and separately installed language environments require their own dependency audit; npm audit of the parent manifest alone does not cover them.
 
 October 12 review: the two Nightscout SHA-1 protocol exceptions retain identical finding bytes, reason and expiry. Their exact source hashes and line locations were updated only after verifying that the writer file differs solely by owner-only umask initialization. No new finding was accepted.
+
+October 24 review (pump profile history): the writer gained the profile mirror (new code adds only SHA-256 content hashing, which no rule flags). Both Nightscout SHA-1 protocol calls are byte-identical (same finding-block hashes, reason and expiry); only the file source hash and the second call's line (195 → 247) changed. The new profile test checks for a hashed header without computing SHA-1, so no new exception was added. Same review remediated new upstream advisories rather than excepting them: parent `@modelcontextprotocol/sdk` 1.32.2 (with body-parser 2.4.0, zod 4.6.7, fast-uri 3.1.9, ip-address 10.7.4), the Nightscout runtime profile (follow-redirects 1.16.1, fast-uri 3.1.9, undici 6.29.1 / apns2 undici 7.30.1, body-parser 1.20.9) and the Python lock (certifi 2026.10.19, setuptools 84.1.0).
 
 ## Separately installed Nightscout runtime
 

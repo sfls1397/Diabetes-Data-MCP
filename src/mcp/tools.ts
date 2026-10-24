@@ -147,5 +147,65 @@ export const TOOL_DEFINITIONS = [
       required: ["sql"]
     },
     annotations: readOnly
+  },
+  {
+    name: "get_active_profile",
+    description:
+      "The pump profile in force now: the newest profile version's active profile (Nightscout defaultProfile, uploaded by tconnectsync) with every schedule segment as local America/Chicago HH:MM–HH:MM: carb_ratio (g/U), sensitivity (mg/dL per U), basal (U/h), target_low/target_high, dia_hours, and scheduled_basal_u_per_day. in_force_now gives the segment values at the current local time. other_profiles lists the pump's other named profiles (full settings with include_all_profiles). profile_sync shows when profiles were last mirrored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        include_all_profiles: { type: "boolean", description: "Return full settings for the other named profiles too. Default false (names only)." }
+      }
+    },
+    annotations: readOnly
+  },
+  {
+    name: "get_profile_as_of",
+    description:
+      "The pump profile that was in force at a past time: the profile version whose start is the latest on or before `at`, its active profile's full schedules, and in_force_at_time (the carb ratio, sensitivity, basal and target segments at that local time of day). A date alone means 00:00 local and also lists changes_that_day. next_change says when the next version took over. Before the archive's first profile version it returns found:false; nothing is extrapolated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        at: {
+          type: "string",
+          description: "YYYY-MM-DD or YYYY-MM-DD HH:MM (America/Chicago local), or an ISO timestamp with Z or an offset."
+        },
+        include_all_profiles: { type: "boolean", description: "Return full settings for the other named profiles too. Default false." }
+      },
+      required: ["at"]
+    },
+    annotations: readOnly
+  },
+  {
+    name: "list_profile_changes",
+    description:
+      "Pump profile change history, oldest first: each profile version's start/end (local and UTC; end = next version's start, null = still in force), active_profile, previous_active_profile, change type (first_version, profile_switch, settings_edit, profile_switch_and_edit, no_active_change), which fields of the active profile changed (carb_ratio, sensitivity, basal, target_low, target_high, dia, units), and profiles added, removed or edited. Filter by the local day a version started (date_from/date_to). include_settings adds each version's full active-profile schedules.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date_from: { type: "string", description: "Earliest local start day to include, YYYY-MM-DD (America/Chicago)." },
+        date_to: { type: "string", description: "Latest local start day to include, YYYY-MM-DD (America/Chicago)." },
+        include_settings: { type: "boolean", description: "Add each version's full active-profile schedules. Default false." },
+        include_deleted: { type: "boolean", description: "Also list versions since deleted in Nightscout (kept in the archive, flagged). Default false." },
+        limit: { ...limit, description: "Max versions to return. Default 100, max 1000." }
+      }
+    },
+    annotations: readOnly
+  },
+  {
+    name: "get_settings_vs_delivery",
+    description:
+      "Programmed pump settings vs delivered insulin for local days date_from..date_to, using the profile version in force at each moment (schedule segments by local time of day; profile switches mid-range split the time exactly). basal: programmed_u (active basal schedule integrated over time) vs delivered_u (Temp Basal rate × time, including Control-IQ changes and suspensions), totals and per profile/segment. carbs: per carb entry the carb ratio in force, programmed_carb_insulin_u (carbs ÷ ratio) vs the bolus actually logged with those carbs, implied g/U, per profile/segment. Also total bolus/basal/TDD. include_days adds per-day rows. Hours before the first recorded profile are reported, never extrapolated. Data only, not dosing advice. At most 366 days.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date_from: dateFrom,
+        date_to: dateTo,
+        include_days: { type: "boolean", description: "Add per-day programmed vs delivered rows. Default false." }
+      },
+      required: ["date_from"]
+    },
+    annotations: readOnly
   }
 ];

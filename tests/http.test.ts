@@ -69,7 +69,7 @@ describe("HTTP server", () => {
     }
   });
 
-  it("serves the 8 tools over Streamable HTTP with the bearer token", async () => {
+  it("serves the 12 tools over Streamable HTTP with the bearer token", async () => {
     const { path, db } = createFixture();
     const server = await startHttpServer({ db, dbPath: path, host: "127.0.0.1", port: 0, token: "test-token", log: () => {} });
     const port = (server.address() as { port: number }).port;
@@ -85,7 +85,20 @@ describe("HTTP server", () => {
       );
       const tools = await client.listTools();
       expect(tools.tools.map((t) => t.name).sort()).toEqual(
-        ["get_coverage", "get_daily_stats", "get_range_stats", "get_weekly_stats", "list_sgv", "list_treatments", "query_raw", "sync_status"]
+        [
+          "get_active_profile",
+          "get_coverage",
+          "get_daily_stats",
+          "get_profile_as_of",
+          "get_range_stats",
+          "get_settings_vs_delivery",
+          "get_weekly_stats",
+          "list_profile_changes",
+          "list_sgv",
+          "list_treatments",
+          "query_raw",
+          "sync_status"
+        ]
       );
       const result = (await client.callTool({ name: "get_range_stats", arguments: { date_from: "2025-11-02" } })) as {
         content: { type: string; text: string }[];

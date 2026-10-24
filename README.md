@@ -1,6 +1,6 @@
 # Diabetes Data MCP
 
-the local diabetes data plane on the Mac Mini, as one product: **Nightscout itself** (moved off GCP `gcns-vm`, home network only), the Nightscout → SQLite sync, and a read-only MCP server over that SQLite archive. The same 8 tools are available to Grok Bot (Local Execution / Mini Shell), Claude Desktop, ChatGPT, and any other MCP client.
+the local diabetes data plane on the Mac Mini, as one product: **Nightscout itself** (moved off GCP `gcns-vm`, home network only), the Nightscout → SQLite sync, and a read-only MCP server over that SQLite archive. The same 12 tools are available to Grok Bot (Local Execution / Mini Shell), Claude Desktop, ChatGPT, and any other MCP client.
 
 Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm install**, never a git checkout: see [Deploy on the Mini](#deploy-on-the-mini). Every command below uses `PKG=~/.local/node/lib/node_modules/diabetes-data-mcp` (the global install under the LaunchAgents' node).
 
@@ -11,7 +11,7 @@ Published to npm as **`diabetes-data-mcp`**. The Mini runs the **global npm inst
 | `nightscout/diabetes-nightscout-server` | Nightscout 15.0.8 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Nightscout on the Mini](#nightscout-on-the-mini). | `com.diabetes-nightscout.server` — KeepAlive |
 | MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
 | `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
-| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **minute** (`StartInterval=60`) |
+| `sync/diabetes-sqlite-sync` | Nightscout entries + treatments + pump profiles → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **minute** (`StartInterval=60`) |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for Claude Desktop on the Mini. | — |
 | `http-proxy <url>` | stdio → HTTP bridge for Claude Desktop on another Mac. Token in `DIABETES_DATA_MCP_TOKEN`. | — |
@@ -37,13 +37,22 @@ Requires **Node.js 22.12+** (`node:sqlite`, no native addon) and macOS `/usr/bin
 | `list_treatments` | Treatments for `date_from`..`date_to` (≤ 366 days): `created_at`, `local`, `event_type`, `insulin`, `carbs`, `duration_min`, `rate`, `percent`, `absolute`, `entered_by`, `notes`. Filters: `event_type` (string or list, exact, case-insensitive), `entered_by` substring. `include_raw` for combo-bolus split details. |
 | `get_daily_stats` | `daily_stats` rows by `date`, `date_from`/`date_to`, or newest `limit` (default 14). |
 | `get_weekly_stats` | `weekly_stats` rows by `week_ending`, a `week_ending` range, or newest `limit` (default 8). Includes `trend_note`. |
-| `get_range_stats` | Computed stats for any window: days, optional per-day `time_from`/`time_to`, optional `weekdays`. Returns TIR/under/over, avg, SD, CV, min/max, `sgv_count`, `hours_covered` (distinct 5-minute slots) vs `window_hours`. `include_insulin` adds bolus / temp-basal / carbs totals for treatments in the same slice (temp basal = insulin, else rate × duration, not clipped to the slice; scheduled profile basal is not in the archive). |
+| `get_range_stats` | Computed stats for any window: days, optional per-day `time_from`/`time_to`, optional `weekdays`. Returns TIR/under/over, avg, SD, CV, min/max, `sgv_count`, `hours_covered` (distinct 5-minute slots) vs `window_hours`. `include_insulin` adds bolus / temp-basal / carbs totals for treatments in the same slice (temp basal = insulin, else rate × duration, not clipped to the slice; for programmed basal use `get_settings_vs_delivery`). |
 | `get_coverage` | Earliest/latest SGV and treatments; per local day in the window (default the whole SGV span) the days with no readings, days under `low_threshold` (default 200; a full day is ~288), days with readings but no `daily_stats` row; optional `include_gaps` with `gap_minutes` (default 30). |
 | `query_raw` | One read-only `SELECT` (or `WITH … SELECT`), capped at 1000 rows. Escape hatch. |
 
+The eight V1 tools above are unchanged. Pump profile tools (added in the profile-history release):
+
+| Tool | Purpose |
+| --- | --- |
+| `get_active_profile` | The profile in force now: the newest version's active profile with every segment (`carb_ratio` g/U, `sensitivity` mg/dL per U, `basal` U/h, `target_low`/`target_high`, `dia_hours`, `scheduled_basal_u_per_day`), `in_force_now` (segment values at the current local time), the other named profiles (full with `include_all_profiles`) and `profile_sync` freshness. |
+| `get_profile_as_of` | The profile in force at `at` (`YYYY-MM-DD` = 00:00 local, `YYYY-MM-DD HH:MM` local, or ISO with Z/offset): version, active schedules, `in_force_at_time`, `next_change`; a date alone also lists `changes_that_day`. Before the first recorded version: `found: false`, never extrapolated. In the repeated fall-back hour the first occurrence is used; a time in the spring-forward gap is an error. |
+| `list_profile_changes` | History oldest first: start/end per version, `active_profile`, `previous_active_profile`, `change` (`first_version`, `profile_switch`, `settings_edit`, `profile_switch_and_edit`, `no_active_change`), `active_profile_changed_fields`, profiles added/removed/edited. Filter by start day; `include_settings` adds full schedules; `include_deleted` shows versions deleted upstream. |
+| `get_settings_vs_delivery` | Programmed vs delivered for `date_from`..`date_to` (≤ 366 days) using the version in force at every moment (exact splits at profile switches, schedule boundaries and DST). `basal`: schedule integrated over time vs Temp Basal rate × time (scheduled, Control-IQ, suspended), totals, by reason, per profile/segment. `carbs`: carbs ÷ the carb ratio in force at each entry vs the bolus logged with those carbs, implied g/U, per segment. `insulin_totals`; `include_days` for per-day rows. Hours before the first version are reported separately. Data only, not dosing advice. |
+
 `get_range_stats` uses the same formulas as the sync's `daily_stats` (population SD, CV = SD / mean), so a whole-day range matches that day's rollup. The test suite checks this end to end.
 
-Out of scope for V1: live Nightscout, the active profile (I:C, CF, basal schedule), pump settings math, Meals synthesis, profile history.
+Out of scope: live Nightscout, settings recommendations (settings judgement stays with the analyst; the profile tools return numbers only), Meals synthesis.
 
 ## Read-only guarantee
 
@@ -61,6 +70,30 @@ Same DDL as the Grok box archive (`sync/sync_from_nightscout.py` `SCHEMA_SQL`).
 | `daily_stats` | `day` PK (Chicago), `tir_80_180`, `under_80`, `over_180`, `avg_mgdl`, `cv_pct`, `tdd_u`, `bolus_u`, `basal_u`, `sgv_count`, `source`, `updated_at` |
 | `weekly_stats` | `week_ending` PK (Saturday), `week_start`, `tir_80_180`, `under_80`, `over_180`, `avg_mgdl`, `cv_pct`, `tdd_u` (mean per day), `sgv_count`, `source`, `trend_note`, `updated_at` |
 
+### Pump profile history (`PROFILE_SCHEMA_SQL`)
+
+One `profile_versions` row per Nightscout profile document. tconnectsync's PROFILES feature uploads a new document whenever the pump's settings or active profile change; each document carries every named profile (`store`), and its `defaultProfile` is the profile in force from `start_ms` until the next version starts.
+
+| Table / view | Columns |
+| --- | --- |
+| `profile_versions` | `id` PK (Nightscout `_id`), `start_ms` (UTC ms of `startDate`), `start_date` (as stored), `created_at`, `active_profile`, `entered_by`, `profile_names` (JSON array), `content_sha256`, `raw_json`, `first_seen_at`, `updated_at`, `source_deleted_at` (set when a full walk no longer finds the document; the row is kept and the tools ignore it) |
+| `profile_settings` | (`version_id`, `profile_name`) PK, `is_active`, `units`, `timezone`, `dia_hours`, `carbs_hr`, `delay_min` |
+| `profile_segments` | (`version_id`, `profile_name`, `kind`, `seq`) PK; `kind` ∈ `carbratio` (g/U), `sens` (BG units per U), `basal` (U/h), `target_low`, `target_high`; `start_sec`/`end_sec` (local seconds of day, end = next start or 86400; the first segment covers from 00:00, as Nightscout reads it), `time` (as stored), `value` |
+| `profile_timeline` (view) | `id`, `start_ms`, `end_ms` (next version's start, NULL = in force), `start_date`, `active_profile`, `entered_by` |
+
+Basal programmed at an instant, in SQL:
+
+```sql
+WITH t AS (SELECT CAST(strftime('%s','2026-10-01T15:00:00Z') AS INTEGER) * 1000 AS ms)
+SELECT v.id, v.active_profile, s.value AS basal_u_per_h
+FROM t, profile_timeline v JOIN profile_segments s
+  ON s.version_id = v.id AND s.profile_name = v.active_profile AND s.kind = 'basal'
+WHERE v.start_ms <= t.ms AND (v.end_ms IS NULL OR t.ms < v.end_ms)
+  AND s.start_sec <= :local_seconds_of_day AND :local_seconds_of_day < s.end_sec;
+```
+
+(`:local_seconds_of_day` is the Chicago wall-clock time; SQLite's date functions are UTC, so prefer `get_profile_as_of` / `get_settings_vs_delivery`, which handle DST.) A version's start is when tconnectsync uploaded the change (it polls Tandem hourly), not the second it was made on the pump. Profile history begins at the first document in Nightscout; earlier times have no profile.
+
 ## Sync
 
 ```bash
@@ -68,6 +101,7 @@ sync/diabetes-sqlite-sync check    # credentials present? (no network, no DB wri
 sync/diabetes-sqlite-sync sync     # entries + treatments + rollups (LaunchAgent default, every minute)
 sync/diabetes-sqlite-sync backfill # one-off: full history from Nightscout, dedupe box-era ids, rebuild all rollups
 sync/diabetes-sqlite-sync stats    # rebuild daily/weekly rollups only, no network
+sync/diabetes-sqlite-sync profiles # re-read every Nightscout profile document only (exit 1 if that fails)
 ```
 
 Credentials are never in git, config, or logs:
@@ -87,6 +121,8 @@ security add-generic-password -U -s diabetes-sqlite -a api-secret -w
 `StartInterval=60` runs every minute. `TZ=America/Chicago` in the plist sets the sync's own date math.
 
 A routine run asks Nightscout for the newest page of entries and treatments, stops as soon as it overlaps what is already stored, and recomputes `daily_stats` / `weekly_stats` only for the newest few days (`DIABETES_SYNC_RECOMPUTE_DAYS`, default 3). The first run of each local day recomputes everything, so a late edit to an older day is picked up within a day.
+
+Profiles are mirrored after the entries/treatments commit, read-only through Nightscout's `GET /api/v1/profile` (its MongoDB `profile` collection; no Mongo connection or new credential). A routine run re-reads the newest `DIABETES_SYNC_PROFILE_RECENT` documents (default 10); the whole collection is re-read when the table is empty, on the first run of each local day, and in `backfill` / `profiles` modes, which also flag documents deleted upstream. Unchanged documents (same content hash) are never rewritten. A profile failure is printed (scrubbed) and stored in `meta.profile_last_error`; it never undoes or fails the glucose/treatment sync. `meta.profile_last_sync_at` / `profile_last_full_day` record the last mirror.
 
 ### Two databases, on purpose
 
