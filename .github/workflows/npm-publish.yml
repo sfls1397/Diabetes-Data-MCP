@@ -11,6 +11,9 @@ on:
   pull_request:
   release:
     types: [published]
+  # Manual publish of main's package.json version (same gates and OIDC job), for a
+  # release whose own run failed for reasons outside the code.
+  workflow_dispatch:
 
 jobs:
   nightscout:
@@ -35,7 +38,7 @@ jobs:
       - run: npm run build
 
   publish-npm:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     needs: [test, nightscout, python-runtime]
     runs-on: ubuntu-latest
     permissions:
