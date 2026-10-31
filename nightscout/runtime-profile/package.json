@@ -181,7 +181,7 @@
     "braces": "3.0.3"
   },
   "overrides": {
-    "follow-redirects": "1.16.1",
+    "follow-redirects": "1.16.2",
     "lodash": "4.18.1",
     "ip-address": "10.7.4",
     "postcss": "8.5.29",
@@ -192,7 +192,7 @@
     "ajv@^8.0.0": "8.18.0",
     "socket.io-parser": "4.2.7",
     "filelist": {
-      "minimatch": "5.1.8"
+      "minimatch": "11.0.1"
     },
     "schema-utils@^4.0.0": {
       "ajv": "8.18.0"
