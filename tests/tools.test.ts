@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { openDatabaseForFixture } from "../src/db/open.js";
 import { callTool } from "../src/mcp/queries.js";
 import { TOOL_DEFINITIONS } from "../src/mcp/tools.js";
 import { createFixture } from "./fixture.js";
@@ -47,6 +48,20 @@ describe("sync_status", () => {
     expect(r.treatments.latest.created_at).toBe("2025-11-04T05:30:00Z");
     expect(r.daily_stats).toEqual({ first_day: "2025-11-01", last_day: "2025-11-03" });
     expect(r.weekly_stats).toEqual({ first_week_ending: "2025-10-25", last_week_ending: "2025-11-01" });
+  });
+
+  it("counts sgv and treatments itself when the sync hasn't stored their counts", () => {
+    expect(call("sync_status").counts_source).toBe("counted");
+  });
+
+  it("uses the sgv and treatments counts the sync stored instead of scanning the tables", () => {
+    const own = createFixture();
+    const write = openDatabaseForFixture(own.path);
+    write.exec("INSERT INTO meta (key, value) VALUES ('sgv_count', '900'), ('treatments_count', '7')");
+    write.close();
+    const r = JSON.parse(callTool(own.db, "sync_status", {}, own.path));
+    expect(r.counts).toEqual({ sgv: 900, treatments: 7, daily_stats: 2, weekly_stats: 2 });
+    expect(r.counts_source).toBe("last_sync");
   });
 
   it("hides URL-like meta keys and redacts URLs in values", () => {

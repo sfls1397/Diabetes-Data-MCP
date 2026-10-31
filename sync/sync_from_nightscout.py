@@ -982,6 +982,9 @@ def run(mode: str) -> int:
             meta_set(conn, "last_sync_writer", WRITER)
             sgv_n = conn.execute("SELECT COUNT(*) FROM sgv").fetchone()[0]
             tx_n = conn.execute("SELECT COUNT(*) FROM treatments").fetchone()[0]
+            # sync_status reads these instead of scanning both tables on every call.
+            meta_set(conn, "sgv_count", str(sgv_n))
+            meta_set(conn, "treatments_count", str(tx_n))
             print(f"totals: sgv={sgv_n} treatments={tx_n}")
         conn.commit()
         if mode in PROFILE_MODES:

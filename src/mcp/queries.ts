@@ -248,6 +248,19 @@ function count(db: DatabaseSync, table: string): number {
   return Number((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n);
 }
 
+/**
+ * Row count the sync recorded in meta with its last commit (exact: the sync is
+ * the only writer). Counting sgv and treatments here instead reads hundreds of
+ * MB when the page cache is cold, and node:sqlite blocks every other request
+ * meanwhile, so only fall back to COUNT(*) for an archive the sync hasn't
+ * stamped yet.
+ */
+function storedCount(db: DatabaseSync, meta: Record<string, string>, table: string): { n: number; stored: boolean } {
+  const raw = meta[`${table}_count`];
+  if (raw != null && /^\d+$/.test(raw)) return { n: Number(raw), stored: true };
+  return { n: count(db, table), stored: false };
+}
+
 function sgvSpan(db: DatabaseSync): { min: number | null; max: number | null } {
   const r = db.prepare("SELECT MIN(date_ms) AS lo, MAX(date_ms) AS hi FROM sgv").get() as Row;
   return { min: num(r.lo), max: num(r.hi) };
@@ -290,6 +303,8 @@ export function runSyncStatus(db: DatabaseSync, dbPath: string, now: number = Da
   const hoursSince = lastSyncMs == null || lastSyncMs <= 0 ? null : round((now - lastSyncMs) / 3_600_000, 1);
   const sgv = sgvSpan(db);
   const tx = treatmentSpan(db);
+  const sgvCount = storedCount(db, meta, "sgv");
+  const txCount = storedCount(db, meta, "treatments");
   const daily = db.prepare("SELECT MIN(day) AS lo, MAX(day) AS hi FROM daily_stats").get() as Row;
   const weekly = db.prepare("SELECT MIN(week_ending) AS lo, MAX(week_ending) AS hi FROM weekly_stats").get() as Row;
   const tirLow = num(meta.tir_low);
@@ -312,11 +327,12 @@ export function runSyncStatus(db: DatabaseSync, dbPath: string, now: number = Da
     hours_since_last_sync: hoursSince,
     stale: hoursSince == null || hoursSince > STALE_AFTER_HOURS,
     counts: {
-      sgv: count(db, "sgv"),
-      treatments: count(db, "treatments"),
+      sgv: sgvCount.n,
+      treatments: txCount.n,
       daily_stats: count(db, "daily_stats"),
       weekly_stats: count(db, "weekly_stats")
     },
+    counts_source: sgvCount.stored && txCount.stored ? "last_sync" : "counted",
     sgv: {
       earliest: stamp(sgv.min),
       latest: stamp(sgv.max),

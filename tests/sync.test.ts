@@ -143,6 +143,8 @@ describe("sync (fake Nightscout -> SQLite -> MCP)", () => {
       const call = (name: string, args: Record<string, unknown> = {}) => JSON.parse(callTool(db, name, args, dbPath));
       const status = call("sync_status");
       expect(status.counts).toMatchObject({ sgv: 864, treatments: 5, daily_stats: 3 });
+      expect(status.counts_source).toBe("last_sync");
+      expect(status.meta).toMatchObject({ sgv_count: "864", treatments_count: "5" });
       expect(status.meta).toMatchObject({
         schema_version: "1",
         timezone: "America/Chicago",
