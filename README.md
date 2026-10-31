@@ -34,7 +34,7 @@ These are fixed in the code (the MCP and the sync), not settings. Using another 
 
 | Tool | Purpose |
 | --- | --- |
-| `sync_status` | `last_sync_at` / `last_sync_mode` from `meta`, hours since the last sync (`stale` after 1 h), row counts, earliest/latest SGV and treatments, daily/weekly span, `schema_version`, TIR band. URL/secret-like meta keys are hidden and URLs in values are redacted. |
+| `sync_status` | `last_sync_at` / `last_sync_mode` from `meta`, hours since the last sync (`stale` after 1 h), row counts (sgv and treatments as stored by the last sync, `counts_source: "last_sync"`; counted live only on an archive the sync hasn't stamped yet), earliest/latest SGV and treatments, daily/weekly span, `schema_version`, TIR band. URL/secret-like meta keys are hidden and URLs in values are redacted. |
 | `list_sgv` | Readings for `date_from`..`date_to` (≤ 31 days), optional `time_from`/`time_to` slice per day (wraps midnight when from > to), `sample` (every Nth), `order`, `limit` (default 1000, max 10000). `raw_json` only with `include_raw`. |
 | `list_treatments` | Treatments for `date_from`..`date_to` (≤ 366 days): `created_at`, `local`, `event_type`, `insulin`, `carbs`, `duration_min`, `rate`, `percent`, `absolute`, `entered_by`, `notes`. Filters: `event_type` (string or list, exact, case-insensitive), `entered_by` substring. `include_raw` for combo-bolus split details. |
 | `get_daily_stats` | `daily_stats` rows by `date`, `date_from`/`date_to`, or newest `limit` (default 14). |
