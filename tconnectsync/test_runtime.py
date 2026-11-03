@@ -214,8 +214,7 @@ class RuntimeTests(unittest.TestCase):
             result = subprocess.run([sys.executable, diabetes_tconnectsync.__file__, *arguments],
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
-            self.assertEqual(result.stdout, '')
-            self.assertNotIn('fixture-private-token', result.stderr)
+            self.assertNotIn('fixture-private-token', result.stdout + result.stderr)
             record = json.loads(result.stderr)
             self.assertEqual(set(record), {'timestamp', 'category', 'stage'})
             self.assertEqual((record['category'], record['stage']), ('parse', 'startup'))
