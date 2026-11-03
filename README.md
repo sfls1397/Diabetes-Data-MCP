@@ -14,6 +14,10 @@ text, tracebacks, URLs, credentials, response bodies or health payloads. Categor
 lookup, Nightscout fetch/parse/upload, SQLite open/write/commit/stats, and Tandem auth/fetch/parse.
 Unclassified failures use `unknown`; an upstream nonzero completion without an exception
 uses stage `sync completion` rather than guessing a cause.
+For an upstream zero-event exit, that diagnostic precedes the existing terminal
+`Processed 0 events` line so the watchdog can still explain the failure correctly.
+Failed startup imports discard upstream validation output before it can expose
+configuration values; successful startup output remains unchanged.
 
 The t:connect wrapper lives in `tconnectsync/diabetes-tconnectsync` and
 `tconnectsync/diabetes_tconnectsync.py`; import-time hooks instrument the pinned upstream

@@ -28,6 +28,12 @@ export TIMEZONE_NAME=${TIMEZONE_NAME:-America/Chicago}
 # The managed Python runtime uses its own supported OpenSSL.
 
 cd "$HOME_DIR" 2>/dev/null || { /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" startup unknown; exit 1; }
+if [ ! -f "$PY" ] || [ ! -x "$PY" ]; then
+  status=0
+  (exec "$PY") 2>/dev/null || status=$?
+  /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" startup unknown
+  exit "$status"
+fi
 if [ "${1:-}" = enrich ]; then
   shift
   exec "$PY" "$HERE/enrich_combos.py" "$@"

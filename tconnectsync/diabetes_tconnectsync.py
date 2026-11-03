@@ -11,12 +11,15 @@ WARNING is logged (uploads continue as stock).
 """
 import logging
 import os
+import re
 import sys
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import combo_bolus  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sync"))
-from failure_diagnostics import category, http_category, report, staged  # noqa: E402
+from failure_diagnostics import category, http_category, report, staged
 
 if __name__ == "__main__":
     sys.excepthook = lambda error_type, error, traceback: report(error, stage="startup")
@@ -67,28 +70,60 @@ def install():
     return True
 
 
+@staged("startup")
+def startup():
+    output, errors = StringIO(), StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
+        active = install()
+        if active:
+            install_diagnostics()
+    sys.stdout.write(output.getvalue())
+    sys.stderr.write(errors.getvalue())
+    return active
+
+
+class CompletionDiagnosticFilter(logging.Filter):
+    def __init__(self):
+        super().__init__()
+        self.emitted = False
+
+    def filter(self, record):
+        if (not self.emitted and "--auto-update" not in sys.argv
+                and record.levelno == logging.INFO and isinstance(record.msg, str)
+                and re.fullmatch(r"Processed 0 events\. Last event ID seen: -?\d+", record.msg)):
+            report(stage="sync completion", kind="unknown")
+            self.emitted = True
+        return True
+
+
 def main():
-    if "--combo-selftest" in sys.argv:
-        ok = install()
-        print("combo patch %s for tconnectsync %s" % ("loaded" if ok else "NOT loaded", SUPPORTED_VERSION))
-        return 0 if ok else 1
+    phase = "startup"
+    completion = CompletionDiagnosticFilter()
+    process_log = logging.getLogger("tconnectsync.sync.tandemsource.process")
     try:
-        if staged("startup")(install)():
-            staged("startup")(install_diagnostics)()
+        active = startup()
+        if "--combo-selftest" in sys.argv:
+            print("combo patch %s for tconnectsync %s" % ("loaded" if active else "NOT loaded", SUPPORTED_VERSION))
+            return 0 if active else 1
+        phase = "sync completion"
+        if active:
+            process_log.addFilter(completion)
         from tconnectsync import main as tconnect_main
         result = tconnect_main()
-        if result:
+        if result and not completion.emitted:
             report(stage="sync completion", kind="unknown")
         return result
     except SystemExit as error:
-        if error.code:
-            report(stage="sync completion", kind="unknown")
+        if error.code and not completion.emitted:
+            report(stage=phase, kind="unknown")
         if error.code is not None and not isinstance(error.code, int):
             raise SystemExit(1) from None
         raise
     except Exception as error:
-        report(error, kind=tandem_category(error))
+        report(error, kind=category(error) if phase == "startup" else tandem_category(error))
         return 1
+    finally:
+        process_log.removeFilter(completion)
 
 
 def tandem_category(error):

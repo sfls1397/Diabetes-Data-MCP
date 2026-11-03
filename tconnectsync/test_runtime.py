@@ -3,7 +3,10 @@
 import importlib.util
 import json
 import logging
+import os
 from pathlib import Path
+import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -155,6 +158,50 @@ class RuntimeTests(unittest.TestCase):
                 patch.object(diabetes_tconnectsync, 'install_diagnostics') as hook, patch('tconnectsync.main', return_value=0):
             self.assertEqual(diabetes_tconnectsync.main(), 0)
             hook.assert_not_called()
+
+    def test_real_import_validation_never_prints_configuration(self):
+        for key in ['TCONNECT_REGION', 'PUMP_SERIAL_NUMBER']:
+            env = {**os.environ, 'TCONNECT_EMAIL': 'fixture', 'TCONNECT_PASSWORD': 'fixture',
+                   'NS_SECRET': 'fixture', 'TCONNECT_REGION': 'US', 'PUMP_SERIAL_NUMBER': '11111111',
+                   key: 'fixture-private-token'}
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('diabetes_tconnectsync.py')),
+                                     '--combo-selftest'], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, '')
+            self.assertNotIn('fixture-private-token', result.stderr)
+            record = json.loads(result.stderr)
+            self.assertEqual(set(record), {'timestamp', 'category', 'stage'})
+            self.assertEqual(record['stage'], 'startup')
+
+    def test_zero_event_diagnostic_preserves_watchdog_terminal_line_contract(self):
+        output = StringIO()
+        logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
+        old_level, old_propagate = logger.level, logger.propagate
+        handler = logging.StreamHandler(output)
+        handler.setFormatter(logging.Formatter('2026-11-03 14:35:12 INFO %(message)s'))
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+
+        def finish():
+            logger.info('Processed 0 events. Last event ID seen: -1')
+            raise SystemExit(1)
+
+        try:
+            logging.disable(logging.NOTSET)
+            with patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=finish):
+                with redirect_stderr(output), self.assertRaises(SystemExit) as result:
+                    diabetes_tconnectsync.main()
+            self.assertEqual(result.exception.code, 1)
+        finally:
+            logging.disable(logging.CRITICAL)
+            logger.removeHandler(handler)
+            logger.setLevel(old_level)
+            logger.propagate = old_propagate
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(json.loads(lines[0])['stage'], 'sync completion')
+        self.assertEqual(lines[-1], '2026-11-03 14:35:12 INFO Processed 0 events. Last event ID seen: -1')
 
     def test_advisory_outage_blocks(self):
         with patch.object(audit.urllib.request, 'urlopen', side_effect=OSError('fixture outage')):

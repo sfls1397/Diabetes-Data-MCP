@@ -129,6 +129,29 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.record(result.stderr, "startup", "unknown")
 
+    def test_missing_interpreter_matches_shell_exec_status_without_raw_path(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            (home / "venv/bin").mkdir(parents=True)
+            binary = home / "venv/bin/tconnectsync"
+            binary.write_text("#!/bin/sh\nexit 99\n")
+            binary.chmod(0o700)
+            security = home / "security"
+            security.write_text("#!/bin/sh\nprintf fixture\n")
+            security.chmod(0o700)
+            env = {**os.environ, "DIABETES_TCONNECTSYNC_HOME": directory, "PATH": directory + ":/usr/bin:/bin"}
+            baseline = home / "baseline.sh"
+            baseline.write_text('#!/bin/sh\nset -eu\nexec "$1"\n')
+            expected = subprocess.run(["sh", str(baseline), str(home / "venv/bin/python")],
+                                      capture_output=True, text=True).returncode
+            result = subprocess.run(["sh", str(root / "tconnectsync/diabetes-tconnectsync")],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, expected)
+            self.assertEqual(result.stdout, "")
+            self.assertNotIn(directory, result.stderr)
+            self.record(result.stderr, "startup", "unknown")
+
     def test_recovered_pagination_error_keeps_existing_success_behavior(self):
         connection = sqlite3.connect(":memory:")
         connection.row_factory = sqlite3.Row
