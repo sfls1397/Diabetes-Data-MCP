@@ -208,6 +208,75 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 audit.findings({'pyjwt': '2.8.0'})
 
+    def test_invalid_arguments_are_private_and_help_remains_available(self):
+        for arguments in [['--days', 'fixture-private-token'], ['--region', 'fixture-private-token'],
+                          ['--fixture-private-token'], ['--features', 'fixture-private-token']]:
+            result = subprocess.run([sys.executable, diabetes_tconnectsync.__file__, *arguments],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, '')
+            self.assertNotIn('fixture-private-token', result.stderr)
+            record = json.loads(result.stderr)
+            self.assertEqual(set(record), {'timestamp', 'category', 'stage'})
+            self.assertEqual((record['category'], record['stage']), ('parse', 'startup'))
+        for argument in ['--help', '--version']:
+            result = subprocess.run([sys.executable, diabetes_tconnectsync.__file__, argument],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('tconnectsync', result.stdout)
+            self.assertEqual(result.stderr, '')
+
+    def test_recovered_nightscout_errors_emit_diagnostics_even_with_logging_disabled(self):
+        from tconnectsync.nightscout import NightscoutApi
+        import requests
+        diabetes_tconnectsync.install_diagnostics()
+        for method in ['last_uploaded_entry', 'last_uploaded_bg_entry',
+                       'last_uploaded_activity', 'last_uploaded_devicestatus']:
+            for disabled in [logging.NOTSET, logging.CRITICAL]:
+                with self.subTest(method=method, disabled=disabled):
+                    output = StringIO()
+                    instance = NightscoutApi('https://fixture.invalid', 'fixture-private-token', ignore_conn_errors=True)
+                    def fetch():
+                        arguments = ['fixture'] if method in ['last_uploaded_entry', 'last_uploaded_activity'] else []
+                        self.assertIsNone(getattr(instance, method)(*arguments))
+                        return 0
+                    try:
+                        logging.disable(disabled)
+                        with patch('tconnectsync.nightscout.requests.get', side_effect=requests.exceptions.ConnectionError('fixture-private-token')), \
+                                patch('tconnectsync.main', side_effect=fetch), patch('sys.argv', ['fixture']), redirect_stderr(output):
+                            self.assertEqual(diabetes_tconnectsync.main(), 0)
+                    finally:
+                        logging.disable(logging.CRITICAL)
+                    record = json.loads(output.getvalue())
+                    self.assertEqual(set(record), {'timestamp', 'category', 'stage'})
+                    self.assertEqual((record['category'], record['stage']), ('transport', 'Nightscout fetch'))
+                    self.assertNotIn('fixture-private-token', output.getvalue())
+
+    def test_parsed_auto_update_abbreviations_do_not_report_zero_event_failure(self):
+        import tconnectsync
+        logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
+        for argument in ['--auto-update', '--auto', '--auto-u', '--a']:
+            output = StringIO()
+            old_level, old_propagate = logger.level, logger.propagate
+            handler = logging.StreamHandler(output)
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+            def cycle():
+                self.assertTrue(tconnectsync.parse_args().auto_update)
+                logger.info('Processed 0 events. Last event ID seen: -1')
+                return 0
+            try:
+                logging.disable(logging.NOTSET)
+                with patch('sys.argv', ['fixture', argument]), patch('tconnectsync.main', side_effect=cycle), redirect_stderr(output):
+                    self.assertEqual(diabetes_tconnectsync.main(), 0)
+            finally:
+                logging.disable(logging.CRITICAL)
+                logger.removeHandler(handler)
+                logger.setLevel(old_level)
+                logger.propagate = old_propagate
+            self.assertEqual(output.getvalue().strip(), 'Processed 0 events. Last event ID seen: -1')
+
     def test_advisory_and_incomplete_response_not_silently_accepted(self):
         for data in [{'results': []}, {'results': [{'error': 'fixture'}]},
                      {'results': [{'next_page_token': 'fixture'}]}]:

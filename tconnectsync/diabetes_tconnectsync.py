@@ -14,6 +14,8 @@ import os
 import re
 import sys
 from contextlib import redirect_stderr, redirect_stdout
+from contextvars import ContextVar
+from functools import wraps
 from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +28,7 @@ if __name__ == "__main__":
 
 SUPPORTED_VERSION = "3.0.3"
 log = logging.getLogger("diabetes.combo_bolus")
+current_completion = ContextVar("diabetes_completion", default=None)
 
 
 class AuthLogFilter(logging.Filter):
@@ -86,9 +89,10 @@ class CompletionDiagnosticFilter(logging.Filter):
     def __init__(self):
         super().__init__()
         self.emitted = False
+        self.auto_update = False
 
     def filter(self, record):
-        if (not self.emitted and "--auto-update" not in sys.argv
+        if (not self.emitted and not self.auto_update
                 and record.levelno == logging.INFO and isinstance(record.msg, str)
                 and re.fullmatch(r"Processed 0 events\. Last event ID seen: -?\d+", record.msg)):
             report(stage="sync completion", kind="unknown")
@@ -99,6 +103,7 @@ class CompletionDiagnosticFilter(logging.Filter):
 def main():
     phase = "startup"
     completion = CompletionDiagnosticFilter()
+    completion_token = current_completion.set(completion)
     process_log = logging.getLogger("tconnectsync.sync.tandemsource.process")
     try:
         active = startup()
@@ -115,7 +120,9 @@ def main():
         return result
     except SystemExit as error:
         if error.code and not completion.emitted:
-            report(stage=phase, kind="unknown")
+            argument_failure = getattr(error, "_diabetes_argument_failure", False)
+            report(stage="startup" if argument_failure else phase,
+                   kind="parse" if argument_failure else "unknown")
         if error.code is not None and not isinstance(error.code, int):
             raise SystemExit(1) from None
         raise
@@ -124,6 +131,41 @@ def main():
         return 1
     finally:
         process_log.removeFilter(completion)
+        current_completion.reset(completion_token)
+
+
+def protected_arguments(original):
+    @wraps(original)
+    def parse(*args, **kwargs):
+        output, errors = StringIO(), StringIO()
+        try:
+            with redirect_stdout(output), redirect_stderr(errors):
+                parsed = original(*args, **kwargs)
+        except SystemExit as error:
+            if error.code:
+                error._diabetes_argument_failure = True
+            else:
+                sys.stdout.write(output.getvalue())
+                sys.stderr.write(errors.getvalue())
+            raise
+        sys.stdout.write(output.getvalue())
+        sys.stderr.write(errors.getvalue())
+        completion = current_completion.get()
+        if completion is not None:
+            completion.auto_update = parsed.auto_update
+        return parsed
+    parse._diabetes_diagnostics = True
+    return parse
+
+
+class RecoveredConnectionLogger(logging.LoggerAdapter):
+    def warning(self, message, *args, **kwargs):
+        if message == "Ignoring ConnectionError because ignore_conn_errors=true" and args:
+            report(stage="Nightscout fetch", kind=tandem_category(args[0]))
+            return
+        return self.logger.warning(message, *args, **kwargs)
+
+    warn = warning
 
 
 def tandem_category(error):
@@ -148,9 +190,16 @@ def tandem_category(error):
 
 
 def install_diagnostics():
+    import tconnectsync
+    import tconnectsync.nightscout as nightscout
     from tconnectsync.api.tandemsource import TandemSourceApi
     from tconnectsync.nightscout import NightscoutApi
     from tconnectsync.sync.tandemsource.process import ProcessTimeRange
+
+    if not getattr(tconnectsync.parse_args, "_diabetes_diagnostics", False):
+        tconnectsync.parse_args = protected_arguments(tconnectsync.parse_args)
+    if not isinstance(nightscout.logger, RecoveredConnectionLogger):
+        nightscout.logger = RecoveredConnectionLogger(nightscout.logger, {})
 
     groups = (
         (TandemSourceApi, "Tandem auth", ("__init__", "login", "extract_jwt")),
