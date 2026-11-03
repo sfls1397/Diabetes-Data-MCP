@@ -27,6 +27,10 @@ import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from failure_diagnostics import failure_stage, report, staged
+
+if __name__ == "__main__":
+    sys.excepthook = lambda error_type, error, traceback: report(error, stage="startup")
 
 # Private archive, lock and import files are owner-only.
 os.umask(0o077)
@@ -60,6 +64,7 @@ def keychain_get(service: str, account: str) -> str | None:
     return value or None
 
 
+@staged("credential lookup")
 def load_nightscout_auth() -> tuple[str, str]:
     """Return (base_url, api_secret_plaintext). Env pair wins, else Keychain."""
     env_url = os.environ.get("NIGHTSCOUT_URL", "").strip()
@@ -238,7 +243,7 @@ def init_db(conn: sqlite3.Connection) -> None:
                 "Mac mini archive; sole writer com.diabetes-sqlite.sync; set DIABETES_DB_PATH to move",
             ),
         )
-    conn.commit()
+    commit(conn)
 
 
 
@@ -247,20 +252,29 @@ def api_secret_header() -> str:
     return hashlib.sha1(secret.encode()).hexdigest()
 
 
+@staged("Nightscout fetch")
 def ns_get(path: str) -> list | dict:
     base, _ = ensure_auth()
     url = f"{base}{path}"
     req = urllib.request.Request(url, headers={"api-secret": api_secret_header(), "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as resp:
-        return json.loads(resp.read().decode())
+        body = resp.read()
+        with failure_stage("Nightscout parse"):
+            return json.loads(body.decode())
 
 
+@staged("SQLite open")
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=60)
     conn.row_factory = sqlite3.Row
     init_db(conn)
     return conn
+
+
+@staged("SQLite commit")
+def commit(conn: sqlite3.Connection) -> None:
+    conn.commit()
 
 
 def meta_get(conn: sqlite3.Connection, key: str) -> str | None:
@@ -272,6 +286,7 @@ def meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)", (key, value))
 
 
+@staged("SQLite write")
 def upsert_sgv(conn: sqlite3.Connection, rows: list[dict]) -> int:
     n = 0
     for r in rows:
@@ -306,6 +321,7 @@ def treatment_id(r: dict) -> str:
     return str(tid)
 
 
+@staged("SQLite write")
 def upsert_treatments(conn: sqlite3.Connection, rows: list[dict]) -> int:
     n = 0
     for r in rows:
@@ -444,7 +460,7 @@ def page_entries(conn: sqlite3.Connection, full: bool = False) -> int:
             batch = ns_get(ns_query("/api/v1/entries.json", params))
         except Exception as e:
             if oldest_seen is not None:
-                print(f"entries find failed ({scrub(str(e))}); stopping page walk", file=sys.stderr)
+                report(e)
                 break
             raise
         if not isinstance(batch, list) or not batch:
@@ -453,7 +469,7 @@ def page_entries(conn: sqlite3.Connection, full: bool = False) -> int:
             break
         total += upsert_sgv(conn, batch)
         if full:
-            conn.commit()
+            commit(conn)
             if safety % 50 == 0:
                 print(f"  entries: {safety} pages, {total} upserts", flush=True)
         dates = [int(x["date"]) for x in batch if x.get("date") is not None]
@@ -496,7 +512,7 @@ def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | No
             batch = ns_get(ns_query("/api/v1/treatments.json", params))
         except Exception as e:
             if oldest_seen is not None:
-                print(f"treatments find failed ({scrub(str(e))}); stopping", file=sys.stderr)
+                report(e)
                 break
             raise
         if not isinstance(batch, list) or not batch:
@@ -507,7 +523,7 @@ def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | No
         if seen is not None:
             seen.update(treatment_id(x) for x in batch)
         if full:
-            conn.commit()
+            commit(conn)
             if safety % 50 == 0:
                 print(f"  treatments: {safety} pages, {total} upserts", flush=True)
         createds = [x.get("created_at") for x in batch if x.get("created_at")]
@@ -815,6 +831,7 @@ def parse_profile_doc(doc: object) -> dict | None:
     }
 
 
+@staged("SQLite write")
 def upsert_profile_docs(conn: sqlite3.Connection, docs: list, now: str) -> tuple[int, int, set]:
     """Upsert by Nightscout _id. Unchanged documents (same content hash) are not rewritten,
     so repeat runs write nothing. Returns (versions changed, documents skipped, ids seen)."""
@@ -862,6 +879,7 @@ def upsert_profile_docs(conn: sqlite3.Connection, docs: list, now: str) -> tuple
     return changed, skipped, seen
 
 
+@staged("Nightscout parse")
 def sync_profiles(conn: sqlite3.Connection, full: bool = False) -> None:
     """Mirror Nightscout's profile collection (read-only GET /api/v1/profile)."""
     today = datetime.now(TZ).date().isoformat()
@@ -903,14 +921,13 @@ def sync_profiles_safely(conn: sqlite3.Connection, full: bool) -> bool:
     """Profile errors never undo the glucose/treatment sync committed before this step."""
     try:
         sync_profiles(conn, full=full)
-        conn.commit()
+        commit(conn)
         return True
-    except Exception as e:  # noqa: BLE001 - reported (scrubbed) and recorded; the run continues
+    except Exception as e:
         conn.rollback()
-        message = f"{type(e).__name__}: {scrub(str(e))}"
-        print(f"WARNING: profile sync failed ({message})", file=sys.stderr)
-        meta_set(conn, "profile_last_error", f"{datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')} {message}")
-        conn.commit()
+        message = report(e)
+        meta_set(conn, "profile_last_error", message)
+        commit(conn)
         return False
 
 
@@ -951,6 +968,7 @@ def stats_since(conn: sqlite3.Connection) -> date | None:
     return datetime.strptime(last, "%Y-%m-%d").date() - timedelta(days=RECOMPUTE_DAYS)
 
 
+@staged("SQLite write")
 def run(mode: str) -> int:
     conn = connect()
     try:
@@ -963,15 +981,17 @@ def run(mode: str) -> int:
             n = page_treatments(conn, full=full, seen=seen if full else None)
             print(f"treatment upserts this walk: {n}")
         if full:
-            conn.commit()
+            commit(conn)
             print(f"stale duplicate treatments removed: {reconcile_treatments(conn, seen)}")
             meta_set(conn, "last_backfill_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
         if mode in ("sync", "stats", "recompute", "backfill"):
             print(f"combo boluses counting their extended part: {apply_combo_effective(conn)}")
             since = stats_since(conn) if mode == "sync" else None
-            days = recompute_range(conn, since=since)
+            with failure_stage("SQLite stats"):
+                days = recompute_range(conn, since=since)
             print(f"daily_stats days: {days}{' (recent)' if since else ' (full)'}")
-            weeks = recompute_weeks(conn, since=since)
+            with failure_stage("SQLite stats"):
+                weeks = recompute_weeks(conn, since=since)
             print(f"weekly_stats weeks: {weeks}")
             if since is None:
                 meta_set(conn, "last_full_recompute_day", datetime.now(TZ).date().isoformat())
@@ -986,7 +1006,7 @@ def run(mode: str) -> int:
             meta_set(conn, "sgv_count", str(sgv_n))
             meta_set(conn, "treatments_count", str(tx_n))
             print(f"totals: sgv={sgv_n} treatments={tx_n}")
-        conn.commit()
+        commit(conn)
         if mode in PROFILE_MODES:
             ok = sync_profiles_safely(conn, full=mode in ("backfill", "profiles"))
             if not ok and mode == "profiles":
@@ -996,7 +1016,8 @@ def run(mode: str) -> int:
     return 0
 
 
-def main() -> int:
+@staged("sync lock")
+def _main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "sync"
     if mode not in MODES:
         print(f"usage: diabetes-sqlite-sync [{'|'.join(MODES)}]", file=sys.stderr)
@@ -1009,7 +1030,7 @@ def main() -> int:
         try:
             ensure_auth()
         except MissingCredentials as e:
-            print(f"ERROR: {e}", file=sys.stderr)
+            report(e, stage="credential lookup", kind="auth")
             return 2
     if mode == "check":
         print("OK: Nightscout credentials present (values not shown)")
@@ -1021,12 +1042,15 @@ def main() -> int:
         except BlockingIOError:
             print("SKIP: another sync already running")
             return 0
-        try:
-            return run(mode)
-        except (urllib.error.URLError, OSError, ValueError, sqlite3.Error) as e:
-            # Uncommitted rows roll back with the connection; the archive keeps its last good state.
-            print(f"ERROR: {type(e).__name__}: {scrub(str(e))}", file=sys.stderr)
-            return 1
+        return run(mode)
+
+
+def main() -> int:
+    try:
+        return _main()
+    except Exception as error:
+        report(error)
+        return 1
 
 
 if __name__ == "__main__":

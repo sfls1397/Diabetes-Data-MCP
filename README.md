@@ -4,6 +4,26 @@ A self-hosted diabetes data plane for one Mac, as one product: **Nightscout itse
 
 Published to npm as **`diabetes-data-mcp`**. Run the **global npm install**, not a git checkout: see [Install and deploy](#install-and-deploy). Every command below uses `PKG="$(npm root -g)/diabetes-data-mcp"` (the global install under the `node` your LaunchAgents use).
 
+## Sync failure diagnostics
+
+Both sync jobs emit failure diagnostics on stderr as JSON with exactly three fields:
+`timestamp` (UTC), `category`, and `stage`. Values are fixed vocabulary, never exception
+text, tracebacks, URLs, credentials, response bodies or health payloads. Categories include
+`timeout`, `auth`, `http_4xx`, `http_5xx`, `http_other`, `db`, `parse`, `transport`, and
+`unknown`; HTTP status numbers are deliberately not retained. Stages distinguish credential
+lookup, Nightscout fetch/parse/upload, SQLite open/write/commit/stats, and Tandem auth/fetch/parse.
+Unclassified failures use `unknown`; an upstream nonzero completion without an exception
+uses stage `sync completion` rather than guessing a cause.
+
+The t:connect wrapper lives in `tconnectsync/diabetes-tconnectsync` and
+`tconnectsync/diabetes_tconnectsync.py`; import-time hooks instrument the pinned upstream
+API boundaries without editing its installed environment. Unsupported versions retain
+the existing stock-sync fallback. SQLite's recoverable pagination/profile failures use
+the same safe record, and `profile_last_error` stores only that record. Profile-only
+failure still exits 1; a recovered profile failure during the normal sync still exits 0.
+Missing credentials still exit 2, retries and schedules are unchanged, and successful
+runs do not emit new diagnostic records.
+
 ## Pieces
 
 | Piece | What | LaunchAgent |

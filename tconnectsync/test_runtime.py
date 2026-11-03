@@ -83,6 +83,79 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(diabetes_tconnectsync.main(), 1)
         self.assertNotIn('fixture-private-token', output.getvalue())
 
+    def test_diagnostic_hooks_cover_each_tandem_stage_and_preserve_calls(self):
+        from tconnectsync.nightscout import NightscoutApi
+        from tconnectsync.sync.tandemsource.process import ProcessTimeRange
+        from tconnectsync.api.common import ApiException
+        import requests
+
+        cases = [(TandemSourceApi, 'login', 'Tandem auth', ApiException(401, 'fixture-private-token'), 'auth'),
+                 (TandemSourceApi, '_get', 'Tandem fetch', requests.exceptions.Timeout('fixture-private-token'), 'timeout'),
+                 (NightscoutApi, 'current_profile', 'Nightscout fetch', ApiException(503, 'fixture-private-token'), 'http_5xx'),
+                 (NightscoutApi, 'upload_entry', 'Nightscout upload', ApiException(422, 'fixture-private-token'), 'http_4xx'),
+                 (ProcessTimeRange, 'process', 'Tandem parse', ValueError('fixture-private-token'), 'parse')]
+        for owner, method, stage, error, category in cases:
+            with self.subTest(stage=stage):
+                calls = []
+
+                def fail(*args, **kwargs):
+                    calls.append((args, kwargs))
+                    raise error
+
+                with patch.object(owner, method, fail):
+                    diabetes_tconnectsync.install_diagnostics()
+                    diabetes_tconnectsync.install_diagnostics()
+                    output = StringIO()
+                    with patch('sys.argv', ['fixture']), patch('tconnectsync.main',
+                            side_effect=lambda: getattr(owner, method)('fixture-private-token', payload='fixture-private-token')):
+                        with redirect_stderr(output):
+                            self.assertEqual(diabetes_tconnectsync.main(), 1)
+                    record = json.loads(output.getvalue())
+                    self.assertEqual(set(record), {'timestamp', 'stage', 'category'})
+                    self.assertEqual(record['stage'], stage)
+                    self.assertEqual(record['category'], category)
+                    self.assertNotIn('fixture-private-token', output.getvalue())
+                    self.assertEqual(calls, [(('fixture-private-token',), {'payload': 'fixture-private-token'})])
+
+    def test_system_exit_codes_and_success_preserved(self):
+        for code in [0, 1, 2]:
+            output = StringIO()
+            with patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=SystemExit(code)):
+                with redirect_stderr(output), self.assertRaises(SystemExit) as result:
+                    diabetes_tconnectsync.main()
+            self.assertEqual(result.exception.code, code)
+            if code:
+                self.assertEqual(json.loads(output.getvalue())['stage'], 'sync completion')
+            else:
+                self.assertEqual(output.getvalue(), '')
+
+    def test_real_nightscout_upload_boundary_classifies_response_without_body(self):
+        from tconnectsync.nightscout import NightscoutApi
+        diabetes_tconnectsync.install_diagnostics()
+        instance = NightscoutApi('https://fixture.invalid', 'fixture-private-token')
+        output = StringIO()
+        response = SimpleNamespace(status_code=503, text='fixture-private-token')
+        with patch('tconnectsync.nightscout.requests.post', return_value=response), \
+                patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=lambda: instance.upload_entry({'fixture': 'fixture-private-token'})):
+            with redirect_stderr(output):
+                self.assertEqual(diabetes_tconnectsync.main(), 1)
+        record = json.loads(output.getvalue())
+        self.assertEqual(record['stage'], 'Nightscout upload')
+        self.assertEqual(record['category'], 'http_5xx')
+        self.assertNotIn('fixture-private-token', output.getvalue())
+
+    def test_startup_exception_and_unsupported_version_fallback(self):
+        output = StringIO()
+        with patch('sys.argv', ['fixture']), patch.object(diabetes_tconnectsync, 'install', side_effect=RuntimeError('fixture-private-token')):
+            with redirect_stderr(output):
+                self.assertEqual(diabetes_tconnectsync.main(), 1)
+        self.assertEqual(json.loads(output.getvalue())['stage'], 'startup')
+        self.assertNotIn('fixture-private-token', output.getvalue())
+        with patch('sys.argv', ['fixture']), patch.object(diabetes_tconnectsync, 'install', return_value=False), \
+                patch.object(diabetes_tconnectsync, 'install_diagnostics') as hook, patch('tconnectsync.main', return_value=0):
+            self.assertEqual(diabetes_tconnectsync.main(), 0)
+            hook.assert_not_called()
+
     def test_advisory_outage_blocks(self):
         with patch.object(audit.urllib.request, 'urlopen', side_effect=OSError('fixture outage')):
             with self.assertRaises(OSError):

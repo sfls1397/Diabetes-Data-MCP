@@ -111,7 +111,7 @@ describe("sync (fake Nightscout -> SQLite -> MCP)", () => {
     const dbPath = tempDb();
     const err = (await run(SYNC, ["sync"], { env: env(dbPath) }).catch((e) => e)) as { code: number; stderr: string };
     expect(err.code).toBe(2);
-    expect(err.stderr).toMatch(/credentials missing/);
+    expect(err.stderr).toMatch(/"stage":"credential lookup"/);
     expect(fs.existsSync(dbPath)).toBe(false);
   });
 
@@ -121,7 +121,7 @@ describe("sync (fake Nightscout -> SQLite -> MCP)", () => {
       env: env(dbPath, { NIGHTSCOUT_URL: baseUrl, NIGHTSCOUT_API_SECRET: "wrong-secret-value" })
     }).catch((e) => e)) as { code: number; stdout: string; stderr: string };
     expect(err.code).toBe(1);
-    expect(err.stderr).toMatch(/401/);
+    expect(err.stderr).toMatch(/"category":"auth"/);
     const out = err.stdout + err.stderr;
     expect(out).not.toContain("wrong-secret-value");
     expect(out).not.toContain(baseUrl);

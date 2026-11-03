@@ -12,14 +12,14 @@ HOME_DIR=${DIABETES_TCONNECTSYNC_HOME:-$HOME/.diabetes-data/tconnectsync}
 HERE=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 PY=$HOME_DIR/venv/bin/python
 BIN=$HOME_DIR/venv/bin/tconnectsync
-test -x "$BIN" || { echo "tconnectsync missing: run tconnectsync/install.sh" >&2; exit 1; }
+test -x "$BIN" || { /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" startup unknown; exit 1; }
 
 k() { security find-generic-password -s "$1" -a "$2" -w 2>/dev/null; }
 TCONNECT_EMAIL=$(k diabetes-tconnectsync tconnect-email) &&
 TCONNECT_PASSWORD=$(k diabetes-tconnectsync tconnect-password) &&
 PUMP_SERIAL_NUMBER=$(k diabetes-tconnectsync pump-serial-number) &&
 NS_SECRET=$(k diabetes-sqlite api-secret) || {
-  echo "Keychain diabetes-tconnectsync/* or diabetes-sqlite/api-secret missing" >&2; exit 2; }
+  /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" 'credential lookup' auth; exit 2; }
 
 export TCONNECT_EMAIL TCONNECT_PASSWORD PUMP_SERIAL_NUMBER NS_SECRET
 export NS_URL=${NS_URL:-http://127.0.0.1:8425}
@@ -27,7 +27,7 @@ export TCONNECT_REGION=${TCONNECT_REGION:-US}
 export TIMEZONE_NAME=${TIMEZONE_NAME:-America/Chicago}
 # The managed Python runtime uses its own supported OpenSSL.
 
-cd "$HOME_DIR"
+cd "$HOME_DIR" 2>/dev/null || { /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" startup unknown; exit 1; }
 if [ "${1:-}" = enrich ]; then
   shift
   exec "$PY" "$HERE/enrich_combos.py" "$@"

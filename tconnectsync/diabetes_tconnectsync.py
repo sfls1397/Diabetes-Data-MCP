@@ -15,6 +15,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import combo_bolus  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sync"))
+from failure_diagnostics import category, http_category, report, staged  # noqa: E402
+
+if __name__ == "__main__":
+    sys.excepthook = lambda error_type, error, traceback: report(error, stage="startup")
 
 SUPPORTED_VERSION = "3.0.3"
 log = logging.getLogger("diabetes.combo_bolus")
@@ -67,16 +72,66 @@ def main():
         ok = install()
         print("combo patch %s for tconnectsync %s" % ("loaded" if ok else "NOT loaded", SUPPORTED_VERSION))
         return 0 if ok else 1
-    install()
-    from tconnectsync import main as tconnect_main
-
     try:
-        return tconnect_main()
-    except Exception:
-        # API exceptions may contain the raw authentication response. Keep the
-        # scheduled job nonzero without serializing it or a credential traceback.
-        print('Tandem sync failed; private response details omitted', file=sys.stderr)
+        if staged("startup")(install)():
+            staged("startup")(install_diagnostics)()
+        from tconnectsync import main as tconnect_main
+        result = tconnect_main()
+        if result:
+            report(stage="sync completion", kind="unknown")
+        return result
+    except SystemExit as error:
+        if error.code:
+            report(stage="sync completion", kind="unknown")
+        if error.code is not None and not isinstance(error.code, int):
+            raise SystemExit(1) from None
+        raise
+    except Exception as error:
+        report(error, kind=tandem_category(error))
         return 1
+
+
+def tandem_category(error):
+    try:
+        import requests
+        import jwt
+        from tconnectsync.api.common import ApiException, ApiLoginException
+    except ImportError:
+        return category(error)
+
+    if isinstance(error, requests.exceptions.Timeout):
+        return "timeout"
+    if isinstance(error, (ApiLoginException, jwt.InvalidTokenError)):
+        return "auth"
+    if isinstance(error, ApiException):
+        return http_category(error.status_code)
+    if isinstance(error, requests.exceptions.HTTPError):
+        return http_category(error.response.status_code if error.response is not None else None)
+    if isinstance(error, requests.exceptions.ConnectionError):
+        return "transport"
+    return category(error)
+
+
+def install_diagnostics():
+    from tconnectsync.api.tandemsource import TandemSourceApi
+    from tconnectsync.nightscout import NightscoutApi
+    from tconnectsync.sync.tandemsource.process import ProcessTimeRange
+
+    groups = (
+        (TandemSourceApi, "Tandem auth", ("__init__", "login", "extract_jwt")),
+        (TandemSourceApi, "Tandem fetch", ("_get", "get", "get_pump_logs", "get_pumper")),
+        (NightscoutApi, "Nightscout fetch", ("last_uploaded_entry", "last_uploaded_bg_entry",
+            "last_uploaded_activity", "last_uploaded_devicestatus", "api_status", "current_profile")),
+        (NightscoutApi, "Nightscout upload", ("upload_entry", "put_entry", "delete_entry")),
+        (ProcessTimeRange, "Tandem parse", ("process",)),
+    )
+    for owner, name, methods in groups:
+        for method in methods:
+            original = getattr(owner, method)
+            if not getattr(original, "_diabetes_diagnostics", False):
+                wrapped = staged(name)(original)
+                wrapped._diabetes_diagnostics = True
+                setattr(owner, method, wrapped)
 
 
 if __name__ == "__main__":

@@ -284,13 +284,13 @@ describe("profile sync (fake Nightscout -> SQLite)", () => {
     try {
       const out = await run(SYNC, ["sync"], opts(dbPath));
       expect(out.stdout).toMatch(/totals: sgv=0 treatments=18/);
-      expect(out.stderr).toMatch(/WARNING: profile sync failed \(HTTPError: HTTP Error 500/);
+      expect(out.stderr).toMatch(/"category":"http_5xx","stage":"Nightscout fetch"/);
       expect(out.stdout + out.stderr).not.toContain(SECRET);
       expect(out.stdout + out.stderr).not.toContain(baseUrl);
       const db = openDatabaseReadOnly(dbPath);
       const status = tool(db, dbPath, "get_active_profile");
       expect(status.found).toBe(false);
-      expect(status.profile_sync.last_profile_error).toMatch(/HTTP Error 500/);
+      expect(status.profile_sync.last_profile_error).toMatch(/"category":"http_5xx","stage":"Nightscout fetch"/);
       expect(tool(db, dbPath, "sync_status").stale).toBe(false);
       db.close();
 
