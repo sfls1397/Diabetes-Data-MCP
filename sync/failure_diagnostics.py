@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 import json
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -19,6 +20,8 @@ CATEGORIES = frozenset((
     "timeout", "http_4xx", "http_5xx", "http_other", "auth", "db", "parse",
     "transport", "unknown",
 ))
+# Python before 3.10 raises socket.timeout, which is not a TimeoutError.
+TIMEOUTS = (TimeoutError, socket.timeout, subprocess.TimeoutExpired)
 
 
 @contextmanager
@@ -54,12 +57,12 @@ def http_category(status):
 
 
 def category(error):
-    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+    if isinstance(error, TIMEOUTS):
         return "timeout"
     if isinstance(error, urllib.error.HTTPError):
         return http_category(error.code)
     if isinstance(error, urllib.error.URLError):
-        return "timeout" if isinstance(error.reason, TimeoutError) else "transport"
+        return "timeout" if isinstance(error.reason, TIMEOUTS) else "transport"
     if isinstance(error, sqlite3.Error):
         return "db"
     if isinstance(error, (ValueError, UnicodeError, json.JSONDecodeError)):
