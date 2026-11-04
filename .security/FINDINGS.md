@@ -42,6 +42,12 @@ October 31 review (stored sync_status counts, 1.2.2): the writer now stores the 
 
 ## Separately installed Nightscout runtime
 
+November 3 review (privacy-safe sync diagnostics, 1.2.3): the existing Nightscout
+SHA-1 protocol calls remain byte-identical with the same finding-block hashes,
+scope and expiry. Only the writer/test file source hashes and shifted writer
+line locations were refreshed. No exception was added or broadened. Failure
+diagnostics use fixed vocabulary and never stringify exceptions or payloads.
+
 The checked-in nightscout/runtime-profile is audited independently of the parent npm package. Its complete production graph must have zero known advisories, including low/moderate findings, without exceptions. The installer applies verified source compatibility replacements, builds the upstream application, audits, then removes development dependencies before switching the managed runtime. See REVIEW.md and nightscout/RUNTIME.md for scope.
 
 ## Separately installed Python runtime
