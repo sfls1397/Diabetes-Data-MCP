@@ -168,6 +168,17 @@ class RecoveredConnectionLogger(logging.LoggerAdapter):
     warn = warning
 
 
+class AutoUpdateLogger(logging.LoggerAdapter):
+    def log(self, level, message, *args, **kwargs):
+        error = sys.exc_info()[1]
+        if level >= logging.WARNING and (error is not None or isinstance(message, Exception)):
+            error = error if error is not None else message
+            report(error, stage=vars(error).get("_diabetes_failure_stage", "Tandem fetch"),
+                   kind=tandem_category(error))
+            return
+        return super().log(level, message, *args, **kwargs)
+
+
 def tandem_category(error):
     try:
         import requests
@@ -186,12 +197,15 @@ def tandem_category(error):
         return http_category(error.response.status_code if error.response is not None else None)
     if isinstance(error, requests.exceptions.ConnectionError):
         return "transport"
+    if isinstance(error, (requests.exceptions.ChunkedEncodingError, requests.exceptions.RetryError)):
+        return "transport"
     return category(error)
 
 
 def install_diagnostics():
     import tconnectsync
     import tconnectsync.nightscout as nightscout
+    import tconnectsync.sync.tandemsource.autoupdate as autoupdate
     from tconnectsync.api.tandemsource import TandemSourceApi
     from tconnectsync.nightscout import NightscoutApi
     from tconnectsync.sync.tandemsource.process import ProcessTimeRange
@@ -200,6 +214,8 @@ def install_diagnostics():
         tconnectsync.parse_args = protected_arguments(tconnectsync.parse_args)
     if not isinstance(nightscout.logger, RecoveredConnectionLogger):
         nightscout.logger = RecoveredConnectionLogger(nightscout.logger, {})
+    if not isinstance(autoupdate.logger, AutoUpdateLogger):
+        autoupdate.logger = AutoUpdateLogger(autoupdate.logger, {})
 
     groups = (
         (TandemSourceApi, "Tandem auth", ("__init__", "login", "extract_jwt")),
