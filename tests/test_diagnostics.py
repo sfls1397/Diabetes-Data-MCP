@@ -3,6 +3,7 @@ import io
 import json
 import os
 from pathlib import Path
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -34,6 +35,8 @@ class DiagnosticsTests(unittest.TestCase):
 
         cases = [(TimeoutError(CANARY), "timeout"),
                  (urllib.error.URLError(TimeoutError(CANARY)), "timeout"),
+                 (socket.timeout(CANARY), "timeout"),
+                 (urllib.error.URLError(socket.timeout(CANARY)), "timeout"),
                  (urllib.error.URLError(CANARY), "transport"),
                  (sqlite3.OperationalError(CANARY), "db"),
                  (ValueError(CANARY), "parse"), (Unprintable(), "unknown")]
@@ -48,6 +51,7 @@ class DiagnosticsTests(unittest.TestCase):
         cases = [("ensure_auth", sync.MissingCredentials(CANARY), "credential lookup", "auth", 2),
                  ("connect", sqlite3.OperationalError(CANARY), "SQLite open", "db", 1),
                  ("ns_get", TimeoutError(CANARY), "Nightscout fetch", "timeout", 1),
+                 ("ns_get", socket.timeout(CANARY), "Nightscout fetch", "timeout", 1),
                  ("upsert_sgv", sqlite3.OperationalError(CANARY), "SQLite write", "db", 1),
                  ("commit", sqlite3.OperationalError(CANARY), "SQLite commit", "db", 1),
                  ("recompute_range", ValueError(CANARY), "SQLite stats", "parse", 1)]
