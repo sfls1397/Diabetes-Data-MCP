@@ -9,6 +9,10 @@
 #   all = server + sync. nightscout = mongod + server; run nightscout/install-runtime.sh first.
 #   tconnectsync: run tconnectsync/install.sh first.
 # Secrets stay in Keychain; this script never reads or prints them.
+# Each plist launches its package script through /bin/sh (or node), never the script
+# itself: macOS Background Task Management keys an agent on its executable, so an
+# npm reinstall that rewrites the script would otherwise post another
+# "App Background Activity ... can run in the background" notice.
 set -eu
 DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 REPO=$(CDPATH='' cd -- "$DIR/.." && pwd)
@@ -28,6 +32,15 @@ install_one() {
   plist="$HOME/Library/LaunchAgents/$label.plist"
   sed -e "s#REPLACE_NODE#$NODE#g" -e "s#REPLACE_REPO#$REPO#g" -e "s#REPLACE_HOME#$HOME#g" "$DIR/$label.plist" > "$plist.tmp"
   plutil -lint "$plist.tmp" >/dev/null
+  # Unchanged plist on a loaded job: keep the file as it is and restart in place.
+  # Every bootstrap makes launchd rescan all LaunchAgents with macOS Background
+  # Task Management, so a reinstall should not reload a job whose plist is the same.
+  if [ -f "$plist" ] && cmp -s "$plist.tmp" "$plist" && launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+    rm -f "$plist.tmp"
+    launchctl kickstart -k "gui/$(id -u)/$label"
+    echo "Restarted $label (plist unchanged)"
+    return 0
+  fi
   mv "$plist.tmp" "$plist"
   # bootout returns before launchd has fully removed the job; bootstrapping too early fails
   # with "5: Input/output error" and leaves the agent unloaded (this took mongod down once).

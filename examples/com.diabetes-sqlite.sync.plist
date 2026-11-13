@@ -13,6 +13,7 @@
   <string>com.diabetes-sqlite.sync</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/sh</string>
     <string>REPLACE_REPO/sync/diabetes-sqlite-sync</string>
     <string>sync</string>
   </array>
