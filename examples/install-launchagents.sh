@@ -32,13 +32,19 @@ install_one() {
   plist="$HOME/Library/LaunchAgents/$label.plist"
   sed -e "s#REPLACE_NODE#$NODE#g" -e "s#REPLACE_REPO#$REPO#g" -e "s#REPLACE_HOME#$HOME#g" "$DIR/$label.plist" > "$plist.tmp"
   plutil -lint "$plist.tmp" >/dev/null
-  # Unchanged plist on a loaded job: keep the file as it is and restart in place.
-  # Every bootstrap makes launchd rescan all LaunchAgents with macOS Background
-  # Task Management, so a reinstall should not reload a job whose plist is the same.
+  # Unchanged plist on a loaded job: keep the file as it is. Every bootstrap makes
+  # launchd rescan all LaunchAgents with macOS Background Task Management, so a
+  # reinstall should not reload a job whose plist is the same. Jobs that run at load
+  # or stay alive restart in place; a purely scheduled job (the hourly tconnectsync
+  # upload) picks up the new code on its next run and is not fired early.
   if [ -f "$plist" ] && cmp -s "$plist.tmp" "$plist" && launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
     rm -f "$plist.tmp"
-    launchctl kickstart -k "gui/$(id -u)/$label"
-    echo "Restarted $label (plist unchanged)"
+    if [ "$(plutil -extract KeepAlive raw -o - "$plist" 2>/dev/null)" = true ] || [ "$(plutil -extract RunAtLoad raw -o - "$plist" 2>/dev/null)" = true ]; then
+      launchctl kickstart -k "gui/$(id -u)/$label"
+      echo "Restarted $label (plist unchanged)"
+    else
+      echo "Left $label as is (plist unchanged; runs new code on its next scheduled run)"
+    fi
     return 0
   fi
   mv "$plist.tmp" "$plist"

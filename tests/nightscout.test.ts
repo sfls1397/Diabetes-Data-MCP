@@ -176,6 +176,16 @@ describe("install-launchagents.sh", () => {
     fs.rmSync(e.home, { recursive: true, force: true });
   });
 
+  it("does not fire a scheduled-only job early on an unchanged reinstall", async () => {
+    const e = fakeMini();
+    fs.mkdirSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin"), { recursive: true });
+    fs.writeFileSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin/tconnectsync"), "#!/bin/sh\n", { mode: 0o755 });
+    await install(e, process.execPath, "tconnectsync");
+    const second = await install(e, process.execPath, "tconnectsync");
+    expect(second.some((l) => /^(bootout|bootstrap|kickstart)/.test(l))).toBe(false);
+    fs.rmSync(e.home, { recursive: true, force: true });
+  });
+
   it("rewrites and reloads a plist whose content changed", async () => {
     const e = fakeMini();
     const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
