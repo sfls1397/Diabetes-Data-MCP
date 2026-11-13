@@ -107,6 +107,9 @@ describe("LaunchAgent executables stay stable across reinstalls", () => {
   });
 });
 
+// The installer is macOS-only (plutil, launchctl); the reinstall tests need the real plutil.
+const HAS_PLUTIL = fs.existsSync("/usr/bin/plutil");
+
 describe("install-launchagents.sh", () => {
   type Env = { home: string; bin: string; log: string; state: string };
 
@@ -153,7 +156,7 @@ describe("install-launchagents.sh", () => {
     expect(sh).toMatch(/until launchctl bootstrap/);
   });
 
-  it("leaves an unchanged plist byte-identical and untouched on reinstall, restarting in place", async () => {
+  it.skipIf(!HAS_PLUTIL)("leaves an unchanged plist byte-identical and untouched on reinstall, restarting in place", async () => {
     const e = fakeMini();
     const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
     const first = await install(e, process.execPath, "nightscout");
@@ -176,7 +179,7 @@ describe("install-launchagents.sh", () => {
     fs.rmSync(e.home, { recursive: true, force: true });
   });
 
-  it("does not fire a scheduled-only job early on an unchanged reinstall", async () => {
+  it.skipIf(!HAS_PLUTIL)("does not fire a scheduled-only job early on an unchanged reinstall", async () => {
     const e = fakeMini();
     fs.mkdirSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin"), { recursive: true });
     fs.writeFileSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin/tconnectsync"), "#!/bin/sh\n", { mode: 0o755 });
@@ -186,7 +189,7 @@ describe("install-launchagents.sh", () => {
     fs.rmSync(e.home, { recursive: true, force: true });
   });
 
-  it("rewrites and reloads a plist whose content changed", async () => {
+  it.skipIf(!HAS_PLUTIL)("rewrites and reloads a plist whose content changed", async () => {
     const e = fakeMini();
     const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
     await install(e, process.execPath, "nightscout");
