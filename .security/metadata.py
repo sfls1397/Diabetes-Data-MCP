@@ -45,8 +45,14 @@ def prospective():
     print('Git prospective identity PASS')
 
 
-def history():
-    commits = run(['rev-list', '--all']).decode('ascii').splitlines()
+def history(revisions=('HEAD',)):
+    # Only the history of what is being checked: the gate's head, or each tip a push sends. Never rev-list --all, which
+    # takes in every branch and every linked worktree's HEAD, so another job's scratch debug commit failed the PR 544 push
+    # and the PR 533 gate (Nov 12).
+    revisions = list(revisions) or ['HEAD']
+    if any(not rev or rev.startswith('-') for rev in revisions):
+        raise RuntimeError('history takes revisions, not options')
+    commits = run(['rev-list', '--end-of-options'] + revisions).decode('ascii').splitlines()
     blocked = []
     # cat-file reads the real commit headers; mailmap cannot hide an identity.
     process = subprocess.Popen(['git', 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
@@ -80,7 +86,7 @@ def history():
         for oid in blocked[:20]:
             print('Git metadata BLOCKED: ' + oid[:12] + ' (private identity/message; values omitted)')
         raise RuntimeError(str(len(blocked)) + ' commit(s) have noncompliant privacy metadata')
-    print('Git history metadata PASS (' + str(len(commits)) + ' commits)')
+    print('Git history metadata PASS (' + str(len(commits)) + ' commits reachable from ' + ' '.join(r[:12] for r in revisions) + ')')
 
 
 def main():
@@ -88,13 +94,13 @@ def main():
     if mode == 'prospective':
         prospective()
     elif mode == 'history':
-        history()
+        history(sys.argv[2:])
     elif mode == 'message' and len(sys.argv) == 3:
         if not message_ok(Path(sys.argv[2]).read_text()):
             raise RuntimeError('Commit message contains private metadata; values omitted')
         print('Git commit-message privacy PASS')
     else:
-        raise RuntimeError('Use prospective, history, or message FILE')
+        raise RuntimeError('Use prospective, history [REVISION...], or message FILE')
 
 
 if __name__ == '__main__':

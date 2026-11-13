@@ -1,9 +1,19 @@
 #!/bin/sh
 set -eu
 export PATH="$HOME/.local/bin:$PATH"
-python3 .security/metadata.py history
-if ! gitleaks git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner . >/dev/null 2>&1; then
-  echo 'History privacy/secret gate BLOCKED' >&2
-  exit 1
+# Scan only what this push sends: the history of each pushed tip. Never --all, which reads every branch and every linked
+# worktree's HEAD; another job's scratch debug commit failed the PR 544 push that way (Nov 12). Deletes send no commits.
+set --
+while read -r _ local_sha _ _; do
+  case "$local_sha" in
+    *[!0]*) set -- "$@" "$local_sha" ;;
+  esac
+done
+if [ "$#" -gt 0 ]; then
+  python3 .security/metadata.py history "$@"
+  if ! gitleaks git --log-opts="$*" --config .gitleaks.toml --redact=100 --no-banner . >/dev/null 2>&1; then
+    echo 'History privacy/secret gate BLOCKED' >&2
+    exit 1
+  fi
 fi
 python3 .security/scan.py all
