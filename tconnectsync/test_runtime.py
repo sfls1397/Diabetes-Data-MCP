@@ -64,6 +64,19 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(jwt.ExpiredSignatureError):
             self.api(expiration=1).extract_jwt()
 
+    def test_locked_html_and_oauth_libraries_work_offline(self):
+        from bs4 import BeautifulSoup
+        from requests_oauthlib import OAuth2Session
+        page = '<form><input name="csrf" value="fixture"></form><div><ul><li><span>z</span></li></ul></div>'
+        for parser in ['html.parser', 'lxml']:
+            soup = BeautifulSoup(page, parser)
+            self.assertEqual(soup.select_one('input[name=csrf]')['value'], 'fixture')
+            self.assertEqual(len(soup.select('div:has(> ul) li span')), 1)
+        url, _ = OAuth2Session('fixture-client', redirect_uri='https://fixture.invalid/cb',
+                               scope='openid').authorization_url('https://fixture.invalid/authorize')
+        self.assertIn('client_id=fixture-client', url)
+        self.assertIn('response_type=code', url)
+
     def test_combo_hook_preserved(self):
         self.assertTrue(diabetes_tconnectsync.install())
         self.assertTrue(diabetes_tconnectsync.install())

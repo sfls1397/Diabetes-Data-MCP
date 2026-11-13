@@ -15,7 +15,10 @@ python-build-standalone release by URL and SHA-256. It replaces the macOS system
 Python 3.9 environment without changing the system interpreter. The alternate
 interpreter environment variable is for CI and must report the exact same
 Python version. All ordinary dependencies are pinned with PyPI artifact hashes
-in `requirements.lock`.
+in `requirements.lock`. soupsieve 4 (the first release clear of
+GHSA-mmhr-3c5m-f64f) needs Python 3.11.5 or newer, so this lock no longer
+installs on the system Python 3.9; the pinned 3.13.16 meets it. Scripts that
+only read the lock, such as `audit.py` without `--installed`, still run there.
 
 Upstream tconnectsync 3.0.3 is still the latest release and pins PyJWT 2.8.0.
 `prepare-wheel.py` verifies its official wheel checksum, changes only that one
