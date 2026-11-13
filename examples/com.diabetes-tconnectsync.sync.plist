@@ -11,6 +11,7 @@
   <string>com.diabetes-tconnectsync.sync</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/sh</string>
     <string>REPLACE_REPO/tconnectsync/diabetes-tconnectsync</string>
   </array>
   <key>StartCalendarInterval</key>

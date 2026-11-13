@@ -11,6 +11,7 @@
   <string>com.diabetes-nightscout.server</string>
   <key>ProgramArguments</key>
   <array>
+    <string>/bin/sh</string>
     <string>REPLACE_REPO/nightscout/diabetes-nightscout-server</string>
   </array>
   <key>RunAtLoad</key>

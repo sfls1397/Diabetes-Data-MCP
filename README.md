@@ -257,11 +257,13 @@ sh "$PKG/nightscout/prove.sh"
 
 One time per machine (state lives in `~/.diabetes-data/` and survives package upgrades): `sh "$PKG/nightscout/install-runtime.sh" "$NODE"` and `sh "$PKG/tconnectsync/install.sh"`.
 
-**Upgrading:** run the `npm install -g --prefix` line with the new `@X.Y.Z`, rerun the three installer lines above (paths do not change, so this just reloads), and run `prove.sh`.
+**Upgrading:** run the `npm install -g --prefix` line with the new `@X.Y.Z`, rerun the three installer lines above (paths do not change, so an unchanged plist is left as it is and its job is restarted in place with `launchctl kickstart -k`), and run `prove.sh`.
 
 **Releases:** bump the version in a PR, merge, and publish a GitHub Release `vX.Y.Z`; `.github/workflows/npm-publish.yml` publishes via npm Trusted Publishing (OIDC, no tokens).
 
 LaunchAgents do not load a login shell, so the installer writes the absolute `node` path into `com.diabetes-mcp.server` and `com.diabetes-nightscout.server`.
+
+Every plist starts its package script through `/bin/sh` (or `node`), never the script itself. macOS Background Task Management tracks each LaunchAgent by its executable; when the executable is a file inside the npm package, every upgrade rewrites it and macOS posts another "App Background Activity: … can run in the background" notice. With `/bin/sh` as the executable, upgrades post nothing. The first install after moving an agent to `/bin/sh` posts one last notice, named "sh".
 
 Server log: `~/Library/Logs/diabetes-data-mcp.server.log`.
 

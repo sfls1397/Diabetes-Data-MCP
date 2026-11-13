@@ -40,8 +40,8 @@ describe("nightscout LaunchAgents", () => {
     }
   });
 
-  it("runs the wrapper from the repo checkout", () => {
-    expect(args(SERVER)).toEqual(["REPLACE_REPO/nightscout/diabetes-nightscout-server"]);
+  it("runs the wrapper from the repo checkout through /bin/sh", () => {
+    expect(args(SERVER)).toEqual(["/bin/sh", "REPLACE_REPO/nightscout/diabetes-nightscout-server"]);
   });
 });
 
@@ -74,7 +74,7 @@ describe("tconnectsync LaunchAgent", () => {
   const TCS = "examples/com.diabetes-tconnectsync.sync.plist";
   it("runs hourly at :35 from the repo wrapper, never at load", () => {
     const xml = read(TCS);
-    expect(args(TCS)).toEqual(["REPLACE_REPO/tconnectsync/diabetes-tconnectsync"]);
+    expect(args(TCS)).toEqual(["/bin/sh", "REPLACE_REPO/tconnectsync/diabetes-tconnectsync"]);
     expect(xml).toMatch(/<key>StartCalendarInterval<\/key>\s*<dict>\s*<key>Minute<\/key>\s*<integer>35<\/integer>\s*<\/dict>/);
     expect(xml).not.toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/);
   });
@@ -86,10 +86,116 @@ describe("tconnectsync LaunchAgent", () => {
   });
 });
 
+/*
+ * macOS Background Task Management (BTM) keys each LaunchAgent on the code
+ * identity of ProgramArguments[0]. When that file is rewritten (every npm
+ * reinstall rewrites the package), BTM records a new item and posts another
+ * "App Background Activity: ... can run in the background" notice. A stable
+ * system executable (/bin/sh, node) with the package script as an argument keeps
+ * the same identity across reinstalls, so no notice.
+ */
+describe("LaunchAgent executables stay stable across reinstalls", () => {
+  const plists = fs.readdirSync(path.join(ROOT, "examples")).filter((f) => f.endsWith(".plist"));
+
+  it("never launches a file from the package or repo directly", () => {
+    expect(plists.length).toBeGreaterThanOrEqual(5);
+    for (const f of plists) {
+      const exe = args(`examples/${f}`)[0];
+      expect(exe, f).toBeTruthy();
+      expect(exe.startsWith("REPLACE_REPO"), `${f} launches ${exe}`).toBe(false);
+    }
+  });
+});
+
 describe("install-launchagents.sh", () => {
+  type Env = { home: string; bin: string; log: string; state: string };
+
+  function fakeMini(): Env {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "dn-la-"));
+    const bin = path.join(home, "stub-bin");
+    const state = path.join(home, "launchd-state");
+    const log = path.join(home, "launchctl.log");
+    fs.mkdirSync(bin);
+    fs.mkdirSync(state);
+    fs.mkdirSync(path.join(home, ".diabetes-data/nightscout/runtime/mongodb/bin"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".diabetes-data/nightscout/runtime/mongodb/bin/mongod"), "#!/bin/sh\n", { mode: 0o755 });
+    // A stand-in launchctl: records every call, keeps "loaded" state as files.
+    fs.writeFileSync(
+      path.join(bin, "launchctl"),
+      [
+        "#!/bin/sh",
+        'echo "$*" >> "$LC_LOG"',
+        'case "$1" in',
+        '  print) test -f "$LC_STATE/${2##*/}" ;;',
+        '  bootout) rm -f "$LC_STATE/${2##*/}" ;;',
+        '  bootstrap) b=${3##*/}; : > "$LC_STATE/${b%.plist}" ;;',
+        "  kickstart) exit 0 ;;",
+        "  *) exit 1 ;;",
+        "esac",
+        ""
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+    return { home, bin, log, state };
+  }
+
+  async function install(e: Env, node: string, which: string) {
+    fs.writeFileSync(e.log, "");
+    await run("/bin/sh", [path.join(ROOT, "examples/install-launchagents.sh"), node, which], {
+      env: { PATH: `${e.bin}:/usr/bin:/bin`, HOME: e.home, LC_LOG: e.log, LC_STATE: e.state }
+    });
+    return fs.readFileSync(e.log, "utf8").trim().split("\n").filter(Boolean);
+  }
+
   it("waits for the old job to unload and retries bootstrap (no I/O-error race)", () => {
     const sh = read("examples/install-launchagents.sh");
     expect(sh).toMatch(/while launchctl print "gui\/\$\(id -u\)\/\$label"/);
     expect(sh).toMatch(/until launchctl bootstrap/);
+  });
+
+  it("leaves an unchanged plist byte-identical and untouched on reinstall, restarting in place", async () => {
+    const e = fakeMini();
+    const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
+    const first = await install(e, process.execPath, "nightscout");
+    expect(first.filter((l) => l.startsWith("bootstrap"))).toHaveLength(2);
+    const xml = fs.readFileSync(plist, "utf8");
+    expect(xml).toContain("<string>/bin/sh</string>");
+    expect(xml).toContain(`<string>${ROOT}/nightscout/diabetes-nightscout-server</string>`);
+    const before = fs.statSync(plist);
+
+    const second = await install(e, process.execPath, "nightscout");
+    const after = fs.statSync(plist);
+    expect(fs.readFileSync(plist, "utf8")).toBe(xml);
+    expect(after.ino).toBe(before.ino);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    // No bootout/bootstrap: each bootstrap makes launchd rescan every agent with BTM.
+    expect(second.some((l) => /^(bootout|bootstrap)/.test(l))).toBe(false);
+    expect(second).toContain(`kickstart -k gui/${process.getuid?.()}/com.diabetes-nightscout.server`);
+    expect(second).toContain(`kickstart -k gui/${process.getuid?.()}/com.diabetes-nightscout.mongod`);
+    expect(fs.readdirSync(path.dirname(plist)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+    fs.rmSync(e.home, { recursive: true, force: true });
+  });
+
+  it("does not fire a scheduled-only job early on an unchanged reinstall", async () => {
+    const e = fakeMini();
+    fs.mkdirSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin"), { recursive: true });
+    fs.writeFileSync(path.join(e.home, ".diabetes-data/tconnectsync/venv/bin/tconnectsync"), "#!/bin/sh\n", { mode: 0o755 });
+    await install(e, process.execPath, "tconnectsync");
+    const second = await install(e, process.execPath, "tconnectsync");
+    expect(second.some((l) => /^(bootout|bootstrap|kickstart)/.test(l))).toBe(false);
+    fs.rmSync(e.home, { recursive: true, force: true });
+  });
+
+  it("rewrites and reloads a plist whose content changed", async () => {
+    const e = fakeMini();
+    const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
+    await install(e, process.execPath, "nightscout");
+    const otherNode = path.join(e.bin, "node");
+    fs.symlinkSync(process.execPath, otherNode);
+    const second = await install(e, otherNode, "nightscout");
+    expect(fs.readFileSync(plist, "utf8")).toContain(`<string>${otherNode}</string>`);
+    expect(second).toContain(`bootout gui/${process.getuid?.()}/com.diabetes-nightscout.server`);
+    expect(second.some((l) => l.startsWith("bootstrap") && l.endsWith("com.diabetes-nightscout.server.plist"))).toBe(true);
+    fs.rmSync(e.home, { recursive: true, force: true });
   });
 });
