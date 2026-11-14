@@ -40,7 +40,7 @@ def main():
     statuses = [s for page in raw for s in page]
     if not gate_passed(statuses, login):
         raise RuntimeError('No recorded local-gate PASS on this exact head; run .security/local-gate.py first')
-    for command in [['python3', '.security/metadata.py', 'history'], ['gitleaks', 'git', '--log-opts=--all', '--config', '.gitleaks.toml', '--redact=100', '--no-banner', '.'], ['python3', '.security/scan.py', 'all']]:
+    for command in full_gates():
         result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result.returncode:
             raise RuntimeError('Local full gates block merge')
@@ -49,6 +49,14 @@ def main():
     if result.returncode:
         raise RuntimeError('Merge failed or PR changed; re-review')
     print('Merged verified PR head after recorded local-gate PASS and local full gates')
+
+
+def full_gates():
+    """The gates rerun on the checked-out PR head. Both history scans read HEAD's history only, never --all, so another
+    job's branch or scratch worktree can't block this merge (Toolbox PR 554, Nov 12)."""
+    return [['python3', '.security/metadata.py', 'history', 'HEAD'],
+            ['gitleaks', 'git', '--log-opts=HEAD', '--config', '.gitleaks.toml', '--redact=100', '--no-banner', '.'],
+            ['python3', '.security/scan.py', 'all']]
 
 
 if __name__ == '__main__':

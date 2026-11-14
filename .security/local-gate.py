@@ -2,7 +2,7 @@
 """Local pre-PR/pre-deploy gate, recorded on GitHub as the merge requirement.
 
 Runs every repository gate on the exact commit in a clean temporary worktree:
-hooks and pinned scanners, Git metadata, full-history Gitleaks, production npm
+hooks and pinned scanners, Git metadata and Gitleaks over the head's full history, production npm
 audit (high), offline Semgrep with ShellCheck/Clang, the enforcement probes and
 this repository's tests from .security/local-gate.json. The result is recorded
 on that commit as the `local-gate` commit status and, for a PR, a PR comment.
@@ -31,8 +31,10 @@ PINS = {'gitleaks': ('.cursor/install-gitleaks.sh', ['gitleaks', 'version']),
         'semgrep': ('.cursor/install-semgrep.sh', ['semgrep', '--version']),
         'shellcheck': ('.cursor/install-shellcheck.sh', ['shellcheck', '--version'])}
 STANDARD = [
-    ('Git metadata (raw author/committer, messages)', ['python3', '.security/metadata.py', 'history']),
-    ('Gitleaks full history', ['gitleaks', 'git', '--log-opts=--all', '--config', '.gitleaks.toml',
+    # Both history scans read the gated head's own history (HEAD in the gate's worktree), never --all: the worktree shares
+    # this repo's refs, so --all read other jobs' branches and scratch worktrees (Toolbox PR 554, Nov 12).
+    ('Git metadata (raw author/committer, messages)', ['python3', '.security/metadata.py', 'history', 'HEAD']),
+    ('Gitleaks full history', ['gitleaks', 'git', '--log-opts=HEAD', '--config', '.gitleaks.toml',
                                '--redact=100', '--no-banner', '.']),
     ('Pre-commit hook', ['.githooks/pre-commit']),
     ('npm audit (production, high) + offline Semgrep + ShellCheck/Clang', ['python3', '.security/scan.py', 'all']),

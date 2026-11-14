@@ -314,7 +314,7 @@ Install Gitleaks 8.30.1 and enable the staged gate once per clone:
 
 ```bash
 git config core.hooksPath .githooks
-gitleaks git --log-opts=--all --config .gitleaks.toml --redact=100 --no-banner .
+gitleaks git --log-opts=HEAD --config .gitleaks.toml --redact=100 --no-banner .
 npm run build && npm run scan:package
 ```
 
