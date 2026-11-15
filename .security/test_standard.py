@@ -137,6 +137,20 @@ class Standard(unittest.TestCase):
         for args in list(commands.values()) + merging:
             self.assertFalse(any('--all' in arg for arg in args), args)
 
+    def test_gate_shows_step_warnings_without_failing(self):
+        runner = module('local_gate_warnings', 'local-gate.py')
+        text = ('gate-warning: Nightscout test passed only on retry: carbs TEST-CARB-004\n'
+                '  gate-warning: indented test output is not a marker\n'
+                'ordinary output gate-warning: mid-line is not a marker\n')
+        self.assertEqual(runner.warning_lines(text),
+                         ['      warning (not blocking): Nightscout test passed only on retry: carbs TEST-CARB-004'])
+        self.assertEqual(runner.warning_lines('Nightscout tests passed only on retry: 0\n'), [])
+        many = runner.warning_lines(''.join('gate-warning: w%d\n' % n for n in range(12)) + 'gate-warning: ' + 'x' * 500)
+        self.assertEqual(len(many), runner.MAX_WARNINGS + 1)
+        self.assertEqual(many[-1], '      ... and 3 more warnings')
+        self.assertEqual(len(runner.warning_lines('gate-warning: ' + 'x' * 500)[0]),
+                         len('      warning (not blocking): ') + runner.MAX_WARNING_TEXT)
+
     def test_extensionless_shell_is_checked(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
