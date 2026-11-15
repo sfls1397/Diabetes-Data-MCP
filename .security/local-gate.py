@@ -42,6 +42,12 @@ STANDARD = [
     ('Repository standard probes', ['python3', '.security/test_standard.py']),
 ]
 
+# A step's own warning lines (scripts/mocha-retry-report.cjs: an upstream Nightscout test that passed only on its retry):
+# shown on this console under the step, never a failure and never sent to GitHub. Only a line that starts with the marker counts.
+GATE_WARNING = re.compile(r'^gate-warning: (.+)$', re.M)
+MAX_WARNINGS = 10
+MAX_WARNING_TEXT = 400
+
 
 class GateError(Exception):
     pass
@@ -92,6 +98,14 @@ def steps(tree):
     return STANDARD + [('Tests: ' + ' '.join(args), args) for args in tests]
 
 
+def warning_lines(text):
+    warnings = [line.strip()[:MAX_WARNING_TEXT] for line in GATE_WARNING.findall(text) if line.strip()]
+    lines = ['      warning (not blocking): ' + line for line in warnings[:MAX_WARNINGS]]
+    if len(warnings) > MAX_WARNINGS:
+        lines.append('      ... and %d more warnings' % (len(warnings) - MAX_WARNINGS))
+    return lines
+
+
 def run_gate(sha, logdir, env):
     results = []
     tree = Path(tempfile.mkdtemp(prefix='local-gate-')) / 'tree'
@@ -113,6 +127,8 @@ def run_gate(sha, logdir, env):
             seconds = int(time.time() - started)
             results.append((name, code == 0, seconds))
             print('%-4s %5ss  %s' % ('PASS' if code == 0 else 'FAIL', seconds, name))
+            for line in warning_lines(log.read_text(errors='replace')):
+                print(line)
             if code:
                 print('--- local output (not sent to GitHub): ' + str(log))
                 print(''.join(log.read_text(errors='replace').splitlines(True)[-40:]))

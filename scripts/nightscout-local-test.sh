@@ -40,8 +40,9 @@ node "$REPO/nightscout/sanitize-connect.mjs" .
 npm audit --omit=dev --audit-level=low
 # --retries 1 (local gate only; CI runners are not shared): under gate load an upstream request can fail with a
 # localhost ETIMEDOUT that no timeout covers (TEST-CARB-004 sets its own 30 s; PR #24 gate run 1, 5-minute load ~24,
-# passed unchanged on the rerun). One retry absorbs that; a test that fails every time still fails the gate.
-./node_modules/.bin/env-cmd -f tests/local.test.env ./node_modules/.bin/mocha --timeout 30000 --retries 1 --require tests/hooks.js --exit tests/*.test.js
+# passed unchanged on the rerun). One retry absorbs that; a test that fails every time still fails the gate. A test that
+# passes only on its retry is named on a gate-warning line (scripts/mocha-retry-report.cjs) that the gate shows.
+./node_modules/.bin/env-cmd -f tests/local.test.env ./node_modules/.bin/mocha --timeout 30000 --retries 1 --require tests/hooks.js --require "$REPO/scripts/mocha-retry-report.cjs" --exit tests/*.test.js
 npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 node "$REPO/nightscout/sanitize-connect.mjs" .
 npm audit --omit=dev --audit-level=low
