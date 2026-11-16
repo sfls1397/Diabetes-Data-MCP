@@ -398,6 +398,98 @@ class RuntimeTests(unittest.TestCase):
                 b'{"results":[{"vulns":[{"id":"GHSA-fixture"}]}]}')):
             self.assertEqual(audit.findings({'pyjwt': '2.8.0'}), [('pyjwt', 'GHSA-fixture')])
 
+    def test_catch_up_window_is_one_day_unless_the_pump_row_is_older(self):
+        import arrow
+        now = arrow.get('2026-11-08T07:35:00+00:00')
+        window = diabetes_tconnectsync.catch_up_window
+        self.assertIsNone(window(now.shift(hours=-2), now))
+        self.assertIsNone(window(now.shift(days=-1), now))
+        stalled = now.shift(days=-3, hours=-13)
+        self.assertEqual(window(stalled, now), stalled)
+        self.assertEqual(window(now.shift(days=-40), now), now.shift(days=-28))
+        self.assertEqual(window(None, now), now.shift(days=-28))
+
+    def catch_up(self, argv, rows):
+        """Run catch_up_arguments against a fake Nightscout; return (argv, stderr, urls)."""
+        from tconnectsync import secret
+        urls = []
+
+        def get(url, **_):
+            urls.append(url)
+            event_type = 'Temp Basal' if 'Temp%20Basal' in url else 'Combo Bolus'
+            row = rows.get(event_type)
+            return SimpleNamespace(status_code=200, json=lambda: [row] if row else [])
+
+        output = StringIO()
+        with patch('tconnectsync.nightscout.requests.get', side_effect=get), \
+                patch.object(secret, 'NS_URL', 'https://fixture.invalid/'), \
+                patch.object(secret, 'NS_SECRET', 'fixture-private-token'), \
+                patch.object(secret, 'TIMEZONE_NAME', 'America/Chicago'), \
+                redirect_stderr(output):
+            result = diabetes_tconnectsync.catch_up_arguments(argv)
+        return result, output.getvalue(), urls
+
+    def test_catch_up_arguments_heal_a_stalled_pump_and_stay_one_day_otherwise(self):
+        import arrow
+        features = ['--features', 'BASAL', 'BOLUS', 'PUMP_EVENTS', 'PROFILES']
+        argv = ['fixture', '--catch-up'] + features
+        recent = arrow.utcnow().shift(minutes=-50).isoformat()
+        result, output, urls = self.catch_up(argv, {'Temp Basal': {'created_at': recent}})
+        self.assertEqual(result, ['fixture'] + features + ['--days', '1'])
+        self.assertEqual(output, '')
+        # The date filter keeps the lookup outside Nightscout's default ~96 h window.
+        self.assertEqual(len(urls), 2)
+        self.assertTrue(all('find[created_at][$gte]=' in url for url in urls))
+        self.assertTrue(all('fixture-private-token' not in url for url in urls))
+
+        basal = arrow.utcnow().shift(days=-3, hours=-13)
+        bolus = basal.shift(hours=-2)
+        result, output, _ = self.catch_up(argv, {'Temp Basal': {'created_at': basal.isoformat()},
+                                                 'Combo Bolus': {'created_at': bolus.isoformat()}})
+        self.assertEqual(result[:-4], ['fixture'] + features)
+        self.assertEqual(result[-4], '--start-date')
+        self.assertEqual(arrow.get(result[-3]), basal)
+        self.assertTrue(result[-3].endswith(('-06:00', '-05:00')))
+        self.assertEqual(result[-2], '--end-date')
+        self.assertLess(abs((arrow.get(result[-1]) - arrow.utcnow()).total_seconds()), 60)
+        self.assertIn('Catching up', output)
+        self.assertNotIn('fixture-private-token', output)
+
+        result, _, _ = self.catch_up(argv, {})
+        self.assertLess(abs((arrow.get(result[-3]) - arrow.utcnow().shift(days=-28)).total_seconds()), 60)
+
+        # Without the flag (hand runs, recipes) the arguments pass through untouched.
+        result, output, urls = self.catch_up(['fixture', '--days', '1'], {})
+        self.assertEqual((result, output, urls), (['fixture', '--days', '1'], '', []))
+
+    def test_catch_up_flag_never_reaches_upstream_and_failures_stay_staged(self):
+        seen = []
+
+        def upstream():
+            seen.append(list(sys.argv))
+            return 0
+        with patch('sys.argv', ['fixture', '--catch-up', '--features', 'BASAL']), \
+                patch.object(diabetes_tconnectsync, 'catch_up_arguments',
+                             side_effect=lambda argv: [argv[0], '--features', 'BASAL', '--days', '1']), \
+                patch('tconnectsync.main', side_effect=upstream):
+            self.assertEqual(diabetes_tconnectsync.main(), 0)
+        self.assertEqual(seen, [['fixture', '--features', 'BASAL', '--days', '1']])
+
+        from tconnectsync import secret
+        diabetes_tconnectsync.install_diagnostics()
+        output = StringIO()
+        response = SimpleNamespace(status_code=503, text='fixture-private-token')
+        with patch('tconnectsync.nightscout.requests.get', return_value=response), \
+                patch.object(secret, 'NS_SECRET', 'fixture-private-token'), \
+                patch('sys.argv', ['fixture', '--catch-up']), \
+                patch('tconnectsync.main', side_effect=AssertionError('upstream must not run')):
+            with redirect_stderr(output):
+                self.assertEqual(diabetes_tconnectsync.main(), 1)
+        record = json.loads(output.getvalue())
+        self.assertEqual(record['stage'], 'Nightscout fetch')
+        self.assertEqual(record['category'], 'http_5xx')
+        self.assertNotIn('fixture-private-token', output.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

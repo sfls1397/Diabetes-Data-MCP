@@ -201,7 +201,7 @@ launchctl kickstart -k gui/$(id -u)/com.diabetes-nightscout.server
 
 ### tconnectsync (Tandem → Nightscout)
 
-Runs `tconnectsync --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against the bundled Nightscout (`http://127.0.0.1:8425`). It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). A true combo/extended bolus is written in the Care Portal shape (`insulin` = immediate U, `enteredinsulin` = total U, `splitNow`/`splitExt` %, `duration` min, `relative` extended U/h) by `tconnectsync/combo_bolus.py`, applied at run time through `tconnectsync/diabetes_tconnectsync.py`; nothing in site-packages is edited, and the hook refuses (with a loud WARNING) on any tconnectsync version other than 3.0.3. The later "Extended Bolus" completion entry is dropped so insulin is not double counted. `diabetes-tconnectsync enrich START END [--apply]` re-maps combos already in Nightscout (dry run by default; only replaces a combo whose old plain document exists, so it is safe to rerun).
+Runs `tconnectsync --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against the bundled Nightscout (`http://127.0.0.1:8425`), reading the last day (`--days 1`), or from the newest Nightscout pump row when that is older, capped at 28 days (`--catch-up`, the wrapper's default). So when the pump stops reporting to Tandem Source for more than a day, the backlog that arrives later is still fetched and the gap heals on the next run; the log then shows `Catching up: … reading Tandem Source from <time>`. Each event type still skips anything at or before its own last upload, so the wider window re-sends nothing. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). A true combo/extended bolus is written in the Care Portal shape (`insulin` = immediate U, `enteredinsulin` = total U, `splitNow`/`splitExt` %, `duration` min, `relative` extended U/h) by `tconnectsync/combo_bolus.py`, applied at run time through `tconnectsync/diabetes_tconnectsync.py`; nothing in site-packages is edited, and the hook refuses (with a loud WARNING) on any tconnectsync version other than 3.0.3. The later "Extended Bolus" completion entry is dropped so insulin is not double counted. `diabetes-tconnectsync enrich START END [--apply]` re-maps combos already in Nightscout (dry run by default; only replaces a combo whose old plain document exists, so it is safe to rerun).
 
 | Keychain service / account | What |
 | --- | --- |
@@ -215,6 +215,20 @@ sh "$PKG/examples/install-launchagents.sh" "$(command -v node)" tconnectsync
 ```
 
 Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`.
+
+#### Fill a missing pump day by hand
+
+For a gap the hourly catch-up cannot reach (older than 28 days, or a hole between days that already have rows):
+
+1. Back up the SQLite archive first: `sqlite3 ~/.diabetes-data/diabetes.sqlite ".backup '$HOME/.diabetes-data/backups/diabetes-before-pump-fill.sqlite'"` (use your `DIABETES_DB_PATH` if you set one). `.backup` takes a consistent copy even while the every-minute sync is writing.
+2. Dry run, then the real run, with the window as Chicago ISO times. Arguments replace the hourly defaults, so pass `--features` too:
+   ```bash
+   W="--start-date 2026-11-05T00:00:00-06:00 --end-date 2026-11-06T23:59:59-06:00 --features BASAL BOLUS PUMP_EVENTS PROFILES"
+   "$PKG/tconnectsync/diabetes-tconnectsync" --pretend $W   # reads Tandem + Nightscout, uploads nothing
+   "$PKG/tconnectsync/diabetes-tconnectsync" $W
+   ```
+   Tandem returns whole pump-local days, and basal events past the end time are not filtered out, so end the window before the first row that already exists after the gap. Nightscout upserts on `created_at` + `eventType`, so overlapping rows are replaced, not duplicated.
+3. `sync/diabetes-sqlite-sync backfill`. The routine sync stops paging at the newest treatment SQLite already has, so it never imports rows backdated into the middle of the history.
 
 ### Install / update
 
