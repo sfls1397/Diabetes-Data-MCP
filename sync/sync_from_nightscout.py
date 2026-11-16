@@ -5,8 +5,9 @@ Sole writer of ~/.diabetes-data/diabetes.sqlite (LaunchAgent com.diabetes-sqlite
 every minute via StartInterval=60). Diabetes Data MCP only reads this file.
 
 Credentials (never hardcode, print, or log the Nightscout URL or API secret):
-  1. Env NIGHTSCOUT_URL + NIGHTSCOUT_API_SECRET (tests / one-off runs)
-  2. macOS Keychain service `diabetes-sqlite`, accounts `nightscout-url` and `api-secret`
+  each from its env variable when set and non empty (NIGHTSCOUT_URL, NIGHTSCOUT_API_SECRET;
+  infisical-run injects them), else macOS Keychain service `diabetes-sqlite`, accounts
+  `nightscout-url` and `api-secret`
 Missing credentials fail closed: exit 2 before the database is opened or created.
 
 Ported from the Grok box writer (/workspace/diabetes-db/sync_from_nightscout.py);
@@ -66,13 +67,9 @@ def keychain_get(service: str, account: str) -> str | None:
 
 @staged("credential lookup")
 def load_nightscout_auth() -> tuple[str, str]:
-    """Return (base_url, api_secret_plaintext). Env pair wins, else Keychain."""
-    env_url = os.environ.get("NIGHTSCOUT_URL", "").strip()
-    env_secret = os.environ.get("NIGHTSCOUT_API_SECRET", "").strip()
-    if env_url and env_secret:
-        return env_url.rstrip("/"), env_secret
-    url = keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_URL_ACCOUNT)
-    secret = keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_SECRET_ACCOUNT)
+    """Return (base_url, api_secret_plaintext). Each from its env variable when set, else Keychain."""
+    url = os.environ.get("NIGHTSCOUT_URL", "").strip() or keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_URL_ACCOUNT)
+    secret = os.environ.get("NIGHTSCOUT_API_SECRET", "").strip() or keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_SECRET_ACCOUNT)
     missing = [a for a, v in ((KEYCHAIN_URL_ACCOUNT, url), (KEYCHAIN_SECRET_ACCOUNT, secret)) if not v]
     if missing:
         raise MissingCredentials(
@@ -80,7 +77,7 @@ def load_nightscout_auth() -> tuple[str, str]:
             "(or env NIGHTSCOUT_URL + NIGHTSCOUT_API_SECRET)."
         )
     if not url.startswith("https://") and not url.startswith("http://"):
-        raise MissingCredentials(f"Keychain {KEYCHAIN_SERVICE}/{KEYCHAIN_URL_ACCOUNT} is not an http(s) URL.")
+        raise MissingCredentials(f"NIGHTSCOUT_URL or Keychain {KEYCHAIN_SERVICE}/{KEYCHAIN_URL_ACCOUNT} is not an http(s) URL.")
     return url.rstrip("/"), secret
 
 

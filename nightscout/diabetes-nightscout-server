@@ -1,12 +1,20 @@
 #!/bin/sh
 # Nightscout on the Mini, LAN only (com.diabetes-nightscout.server).
-# API_SECRET comes from Keychain (service diabetes-sqlite, account api-secret) at
-# launch: the same plaintext site secret the Diabetes sync sends as SHA-1. It is
+# API_SECRET: the same plaintext site secret the Diabetes sync sends as SHA-1. It is
 # never written to disk, config, or logs. Missing secret exits 2.
 # Dexcom Share bridge stays OFF unless BRIDGE_ENABLE=1 in ~/.diabetes-data/nightscout/config.env;
-# then BRIDGE_USER_NAME / BRIDGE_PASSWORD come from Keychain service diabetes-nightscout.
+# then BRIDGE_USER_NAME / BRIDGE_PASSWORD are needed too.
+# Each secret comes from its environment variable when set and non empty (infisical-run
+# injects it), else from the Keychain: diabetes-sqlite/api-secret,
+# diabetes-nightscout/dexcom-username and dexcom-password. config.env never supplies one.
 # Only one Nightscout may poll Share at a time.
 set -eu
+
+# Taken before config.env is read, so only the process environment can supply them.
+ENV_API_SECRET=${API_SECRET:-}
+ENV_BRIDGE_USER_NAME=${BRIDGE_USER_NAME:-}
+ENV_BRIDGE_PASSWORD=${BRIDGE_PASSWORD:-}
+unset API_SECRET BRIDGE_USER_NAME BRIDGE_PASSWORD
 
 HOME_DIR=${DIABETES_NIGHTSCOUT_HOME:-$HOME/.diabetes-data/nightscout}
 RT=$HOME_DIR/runtime
@@ -30,13 +38,18 @@ case "$MONGODB_URI" in
   *) echo "MONGODB_URI must point at the loopback mongod" >&2; exit 64 ;;
 esac
 
-API_SECRET=$(security find-generic-password -s diabetes-sqlite -a api-secret -w 2>/dev/null) || {
-  echo "Keychain diabetes-sqlite/api-secret missing" >&2; exit 2; }
+API_SECRET=$ENV_API_SECRET
+[ -n "$API_SECRET" ] || API_SECRET=$(security find-generic-password -s diabetes-sqlite -a api-secret -w 2>/dev/null) || {
+  echo "API_SECRET unset and Keychain diabetes-sqlite/api-secret missing" >&2; exit 2; }
 
 if [ "$BRIDGE_ENABLE" = 1 ]; then
-  BRIDGE_USER_NAME=$(security find-generic-password -s diabetes-nightscout -a dexcom-username -w 2>/dev/null) &&
-  BRIDGE_PASSWORD=$(security find-generic-password -s diabetes-nightscout -a dexcom-password -w 2>/dev/null) || {
-    echo "BRIDGE_ENABLE=1 but Keychain diabetes-nightscout/dexcom-username or dexcom-password missing" >&2; exit 2; }
+  BRIDGE_USER_NAME=$ENV_BRIDGE_USER_NAME
+  BRIDGE_PASSWORD=$ENV_BRIDGE_PASSWORD
+  { [ -n "$BRIDGE_USER_NAME" ] ||
+    BRIDGE_USER_NAME=$(security find-generic-password -s diabetes-nightscout -a dexcom-username -w 2>/dev/null); } &&
+  { [ -n "$BRIDGE_PASSWORD" ] ||
+    BRIDGE_PASSWORD=$(security find-generic-password -s diabetes-nightscout -a dexcom-password -w 2>/dev/null); } || {
+    echo "BRIDGE_ENABLE=1 but BRIDGE_USER_NAME or BRIDGE_PASSWORD unset and missing from Keychain diabetes-nightscout" >&2; exit 2; }
   export BRIDGE_USER_NAME BRIDGE_PASSWORD BRIDGE_SERVER
   # v15 migrates BRIDGE to connect; enable its settings namespace so explicit
   # regions are read. US/EU are legacy enums, not literal DNS hostnames.
@@ -47,6 +60,7 @@ if [ "$BRIDGE_ENABLE" = 1 ]; then
   ENABLE="$ENABLE bridge connect"
   echo "bridge: ON (Dexcom Share, server $BRIDGE_SERVER)"
 else
+  unset BRIDGE_USER_NAME BRIDGE_PASSWORD
   echo "bridge: OFF"
 fi
 

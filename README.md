@@ -34,7 +34,7 @@ runs do not emit new diagnostic records.
 | --- | --- | --- |
 | `nightscout/diabetes-nightscout-server` | Nightscout 15.0.8 on the home LAN, `0.0.0.0:8425`. Dexcom Share bridge + tconnectsync feed it. See [Bundled Nightscout](#bundled-nightscout). | `com.diabetes-nightscout.server` — KeepAlive |
 | MongoDB 8.0 (`nightscout/install-runtime.sh`) | Nightscout's database, **127.0.0.1:27017 only**. | `com.diabetes-nightscout.mongod` — KeepAlive |
-| `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
+| `tconnectsync/diabetes-tconnectsync` | [tconnectsync](https://github.com/jwoglom/tconnectsync) 3.0.3 (pinned venv): Tandem Source pump data → Nightscout. Logins from the environment, else Keychain. | `com.diabetes-tconnectsync.sync` — hourly at **:35** |
 | `sync/diabetes-sqlite-sync` | Nightscout entries + treatments + pump profiles → `~/.diabetes-data/diabetes.sqlite`, then rebuilds `daily_stats` / `weekly_stats`. **Sole writer.** | `com.diabetes-sqlite.sync` — every **minute** (`StartInterval=60`) |
 | `bin/diabetes-data-mcp.js serve` | Streamable HTTP MCP, bearer token on every request including `/health`. Preferred port **8424**. | `com.diabetes-mcp.server` — KeepAlive |
 | `stdio` | Same tools over stdio for a client on the same Mac. | — |
@@ -132,8 +132,8 @@ sync/diabetes-sqlite-sync profiles # re-read every Nightscout profile document o
 
 Credentials are never in git, config, or logs:
 
-1. Env `NIGHTSCOUT_URL` + `NIGHTSCOUT_API_SECRET` (one-off runs / tests)
-2. macOS Keychain service **`diabetes-sqlite`**, accounts **`nightscout-url`** and **`api-secret`** (the plaintext site API_SECRET; the sync sends its SHA-1 as the `api-secret` header)
+1. Env `NIGHTSCOUT_URL` and `NIGHTSCOUT_API_SECRET`, each on its own when set and non empty (`infisical-run` injects them; also one-off runs and tests)
+2. Otherwise macOS Keychain service **`diabetes-sqlite`**, accounts **`nightscout-url`** and **`api-secret`** (the plaintext site API_SECRET; the sync sends its SHA-1 as the `api-secret` header)
 
 Seed the Keychain on the Mac that runs the sync (keep the values out of shell history):
 
@@ -178,12 +178,14 @@ Who connects:
 
 Every request needs the site API secret (`AUTH_DEFAULT_ROLES=denied`); without it the API returns 401. Don't port-forward 8425 or 27017.
 
-### Secrets (Keychain only)
+### Secrets (environment first, then Keychain)
 
-| Service / account | What |
-| --- | --- |
-| `diabetes-sqlite` / `api-secret` | Plaintext site `API_SECRET`. Nightscout reads it at launch; the sync and `nightscout/prove.sh` send its SHA-1. One item, so they can't drift. |
-| `diabetes-nightscout` / `dexcom-username`, `dexcom-password` | Dexcom Share login. Read only when `BRIDGE_ENABLE=1`. |
+Each secret comes from its environment variable when that is set and non empty (a secrets manager such as Infisical's `infisical-run` puts it there), otherwise from the Keychain item. `config.env` never supplies a secret.
+
+| Env variable | Keychain service / account | What |
+| --- | --- | --- |
+| `API_SECRET` | `diabetes-sqlite` / `api-secret` | Plaintext site `API_SECRET`. Nightscout reads it at launch; the sync and `nightscout/prove.sh` send its SHA-1. One item, so they can't drift. |
+| `BRIDGE_USER_NAME`, `BRIDGE_PASSWORD` | `diabetes-nightscout` / `dexcom-username`, `dexcom-password` | Dexcom Share login. Read only when `BRIDGE_ENABLE=1`; with the bridge off they are kept from Nightscout. |
 
 ```bash
 security add-generic-password -U -s diabetes-nightscout -a dexcom-username -w
@@ -203,10 +205,12 @@ launchctl kickstart -k gui/$(id -u)/com.diabetes-nightscout.server
 
 Runs `tconnectsync --features BASAL BOLUS PUMP_EVENTS PROFILES` hourly at :35 against the bundled Nightscout (`http://127.0.0.1:8425`), reading the last day (`--days 1`), or from the newest Nightscout pump row when that is older, capped at 28 days (`--catch-up`, the wrapper's default). So when the pump stops reporting to Tandem Source for more than a day, the backlog that arrives later is still fetched and the gap heals on the next run; the log then shows `Catching up: … reading Tandem Source from <time>`. Each event type still skips anything at or before its own last upload, so the wider window re-sends nothing. It does not upload CGM; Dexcom comes through the bridge. Pinned to 3.0.3, which already sends `eventCodes` (Tandem rejects the old `eventIds` with HTTP 400). A true combo/extended bolus is written in the Care Portal shape (`insulin` = immediate U, `enteredinsulin` = total U, `splitNow`/`splitExt` %, `duration` min, `relative` extended U/h) by `tconnectsync/combo_bolus.py`, applied at run time through `tconnectsync/diabetes_tconnectsync.py`; nothing in site-packages is edited, and the hook refuses (with a loud WARNING) on any tconnectsync version other than 3.0.3. The later "Extended Bolus" completion entry is dropped so insulin is not double counted. `diabetes-tconnectsync enrich START END [--apply]` re-maps combos already in Nightscout (dry run by default; only replaces a combo whose old plain document exists, so it is safe to rerun).
 
-| Keychain service / account | What |
-| --- | --- |
-| `diabetes-tconnectsync` / `tconnect-email`, `tconnect-password`, `pump-serial-number` | Tandem Source login and pump |
-| `diabetes-sqlite` / `api-secret` | Nightscout secret (shared) |
+Each from its environment variable when set and non empty, otherwise the Keychain item:
+
+| Env variable | Keychain service / account | What |
+| --- | --- | --- |
+| `TCONNECT_EMAIL`, `TCONNECT_PASSWORD`, `PUMP_SERIAL_NUMBER` | `diabetes-tconnectsync` / `tconnect-email`, `tconnect-password`, `pump-serial-number` | Tandem Source login and pump |
+| `NS_SECRET` | `diabetes-sqlite` / `api-secret` | Nightscout secret (shared) |
 
 ```bash
 sh "$PKG/tconnectsync/install.sh"
@@ -284,7 +288,7 @@ Server log: `~/Library/Logs/diabetes-data-mcp.server.log`.
 
 ### Keychain bearer token
 
-Service **`diabetes-data-mcp-http`**, account **`http-auth-token`**. `serve` creates it on first start. Print it on the server Mac for client setup:
+Service **`diabetes-data-mcp-http`**, account **`http-auth-token`**. `serve` uses `DIABETES_DATA_MCP_TOKEN` when it is set and non empty (`infisical-run` injects it), otherwise this Keychain item, and creates the item on first start. The Keychain copy stays the client copy, so keep both equal. Print it on the server Mac for client setup:
 
 ```bash
 diabetes-data-mcp http-token
