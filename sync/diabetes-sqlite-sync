@@ -1,6 +1,7 @@
 #!/bin/sh
 # LaunchAgent / CLI entry — Mac mini Nightscout → SQLite sync (sole writer).
-# Secrets stay in Keychain (service diabetes-sqlite, accounts nightscout-url / api-secret); never echo them.
+# Secrets: NIGHTSCOUT_URL / NIGHTSCOUT_API_SECRET from the environment when set (infisical-run),
+# else Keychain (service diabetes-sqlite, accounts nightscout-url / api-secret); never echo them.
 set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 export DIABETES_DB_PATH="${DIABETES_DB_PATH:-$HOME/.diabetes-data/diabetes.sqlite}"

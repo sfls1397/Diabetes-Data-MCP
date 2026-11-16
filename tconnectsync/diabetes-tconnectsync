@@ -1,8 +1,10 @@
 #!/bin/sh
 # Tandem Source -> Mini Nightscout (com.diabetes-tconnectsync.sync, hourly at :35).
-# Credentials come from Keychain at run time and are never written to disk or logs:
-#   diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
-#   diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
+# Credentials come at run time and are never written to disk or logs: each from its
+# environment variable when set and non empty (infisical-run injects it), else Keychain:
+#   TCONNECT_EMAIL, TCONNECT_PASSWORD, PUMP_SERIAL_NUMBER
+#     <- diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
+#   NS_SECRET <- diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
 # Missing credentials exit 2. No args = the hourly run: one day, or from the newest
 # Nightscout pump row when that is older (--catch-up, capped at 28 days).
 # Runs tconnectsync through diabetes_tconnectsync.py, which applies the combo-bolus mapping
@@ -16,10 +18,10 @@ BIN=$HOME_DIR/venv/bin/tconnectsync
 test -x "$BIN" || { /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" startup unknown; exit 1; }
 
 k() { security find-generic-password -s "$1" -a "$2" -w 2>/dev/null; }
-TCONNECT_EMAIL=$(k diabetes-tconnectsync tconnect-email) &&
-TCONNECT_PASSWORD=$(k diabetes-tconnectsync tconnect-password) &&
-PUMP_SERIAL_NUMBER=$(k diabetes-tconnectsync pump-serial-number) &&
-NS_SECRET=$(k diabetes-sqlite api-secret) || {
+{ [ -n "${TCONNECT_EMAIL:-}" ] || TCONNECT_EMAIL=$(k diabetes-tconnectsync tconnect-email); } &&
+{ [ -n "${TCONNECT_PASSWORD:-}" ] || TCONNECT_PASSWORD=$(k diabetes-tconnectsync tconnect-password); } &&
+{ [ -n "${PUMP_SERIAL_NUMBER:-}" ] || PUMP_SERIAL_NUMBER=$(k diabetes-tconnectsync pump-serial-number); } &&
+{ [ -n "${NS_SECRET:-}" ] || NS_SECRET=$(k diabetes-sqlite api-secret); } || {
   /usr/bin/python3 "$HERE/../sync/failure_diagnostics.py" 'credential lookup' auth; exit 2; }
 
 export TCONNECT_EMAIL TCONNECT_PASSWORD PUMP_SERIAL_NUMBER NS_SECRET

@@ -10,6 +10,8 @@ import { execFileSync as defaultExecFileSync } from "node:child_process";
 
 export const KEYCHAIN_SERVICE = "diabetes-data-mcp-http";
 export const KEYCHAIN_ACCOUNT = "http-auth-token";
+/** Set and non empty (infisical-run injects it), this wins over the Keychain. */
+export const TOKEN_ENV = "DIABETES_DATA_MCP_TOKEN";
 
 type Exec = typeof defaultExecFileSync;
 
@@ -26,12 +28,20 @@ export function readKeychainSecret(service: string, account: string, exec: Exec 
 }
 
 export function loadOrCreateHttpAuthToken(
-  options: { log?: (m: string) => void; forceNew?: boolean; execFileSync?: Exec; randomBytes?: typeof crypto.randomBytes } = {}
+  options: {
+    log?: (m: string) => void;
+    forceNew?: boolean;
+    execFileSync?: Exec;
+    randomBytes?: typeof crypto.randomBytes;
+    env?: NodeJS.ProcessEnv;
+  } = {}
 ): { token: string; generated: boolean } {
   const log = options.log || ((m: string) => console.error(m));
   const exec = options.execFileSync || defaultExecFileSync;
   const randomBytes = options.randomBytes || crypto.randomBytes;
   if (!options.forceNew) {
+    const fromEnv = (options.env ?? process.env)[TOKEN_ENV]?.trim();
+    if (fromEnv) return { token: fromEnv, generated: false };
     const existing = readKeychainSecret(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, exec);
     if (existing) return { token: existing, generated: false };
   }
