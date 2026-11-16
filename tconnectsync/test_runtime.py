@@ -490,6 +490,23 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(record['category'], 'http_5xx')
         self.assertNotIn('fixture-private-token', output.getvalue())
 
+    def test_catch_up_lookup_fails_closed_even_when_connection_errors_are_ignored(self):
+        import requests
+        from tconnectsync import secret
+        diabetes_tconnectsync.install_diagnostics()
+        output = StringIO()
+        with patch('tconnectsync.nightscout.requests.get',
+                   side_effect=requests.exceptions.ConnectionError('fixture-private-token')), \
+                patch.object(secret, 'NS_IGNORE_CONN_ERRORS', True), \
+                patch.object(secret, 'NS_SECRET', 'fixture-private-token'), \
+                patch('sys.argv', ['fixture', '--catch-up']), \
+                patch('tconnectsync.main', side_effect=AssertionError('no 28-day window on a failed lookup')):
+            with redirect_stderr(output):
+                self.assertEqual(diabetes_tconnectsync.main(), 1)
+        record = json.loads(output.getvalue())
+        self.assertEqual((record['stage'], record['category']), ('Nightscout fetch', 'transport'))
+        self.assertNotIn('fixture-private-token', output.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()

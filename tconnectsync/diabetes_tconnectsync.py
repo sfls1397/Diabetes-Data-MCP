@@ -135,9 +135,11 @@ def catch_up_arguments(argv):
 
     zone = secret.TIMEZONE_NAME
     now = arrow.utcnow()  # window math in UTC, so a DST change never shifts it an hour
+    # Never ignore_conn_errors here: an unreachable Nightscout would read as "no pump
+    # row" and silently widen the window to the 28-day floor. Fail the run instead.
     nightscout = NightscoutApi(secret.NS_URL, secret.NS_SECRET,
                                skip_verify=secret.NS_SKIP_TLS_VERIFY,
-                               ignore_conn_errors=secret.NS_IGNORE_CONN_ERRORS)
+                               ignore_conn_errors=False)
     start = catch_up_window(newest_pump_row(nightscout, now), now)
     if start is None:
         return rest + ["--days", "1"]

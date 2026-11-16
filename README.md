@@ -220,13 +220,14 @@ Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`.
 
 For a gap the hourly catch-up cannot reach (older than 28 days, or a hole between days that already have rows):
 
-1. Back up the SQLite archive first: `sqlite3 ~/.diabetes-data/diabetes.sqlite ".backup '$HOME/.diabetes-data/backups/diabetes-before-pump-fill.sqlite'"` (use your `DIABETES_DB_PATH` if you set one). `.backup` takes a consistent copy even while the every-minute sync is writing.
+1. Back up the SQLite archive first: `mkdir -p ~/.diabetes-data/backups && sqlite3 ~/.diabetes-data/diabetes.sqlite ".backup '$HOME/.diabetes-data/backups/diabetes-before-pump-fill.sqlite'"` (use your `DIABETES_DB_PATH` if you set one). `.backup` takes a consistent copy even while the every-minute sync is writing.
 2. Dry run, then the real run, with the window as Chicago ISO times. Arguments replace the hourly defaults, so pass `--features` too:
    ```bash
-   W="--start-date 2026-11-05T00:00:00-06:00 --end-date 2026-11-06T23:59:59-06:00 --features BASAL BOLUS PUMP_EVENTS PROFILES"
-   "$PKG/tconnectsync/diabetes-tconnectsync" --pretend $W   # reads Tandem + Nightscout, uploads nothing
-   "$PKG/tconnectsync/diabetes-tconnectsync" $W
+   W=(--start-date 2026-11-05T00:00:00-06:00 --end-date 2026-11-06T23:59:59-06:00 --features BASAL BOLUS PUMP_EVENTS PROFILES)
+   "$PKG/tconnectsync/diabetes-tconnectsync" --pretend "${W[@]}"   # reads Tandem + Nightscout, uploads nothing
+   "$PKG/tconnectsync/diabetes-tconnectsync" "${W[@]}"
    ```
+   (An array, so it works the same in zsh and bash; a plain `W="…"` string is passed as one argument in zsh.)
    Tandem returns whole pump-local days, and basal events past the end time are not filtered out, so end the window before the first row that already exists after the gap. Nightscout upserts on `created_at` + `eventType`, so overlapping rows are replaced, not duplicated.
 3. `sync/diabetes-sqlite-sync backfill`. The routine sync stops paging at the newest treatment SQLite already has, so it never imports rows backdated into the middle of the history.
 
