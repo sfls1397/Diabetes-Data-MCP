@@ -7,12 +7,17 @@ installed tconnectsync is not the pinned version the mapping is NOT applied and 
 WARNING is logged (uploads continue as stock).
 
     diabetes_tconnectsync.py --combo-selftest   verify the hook loads, then exit
+    diabetes_tconnectsync.py --catch-up [tconnectsync args]
+        the hourly run: one day, or from the newest Nightscout pump row when that is
+        older (capped at CATCH_UP_MAX_DAYS), so a pump that stopped reporting to Tandem
+        Source heals once its backlog arrives
     diabetes_tconnectsync.py [tconnectsync args]
 """
 import logging
 import os
 import re
 import sys
+from datetime import timedelta
 from contextlib import redirect_stderr, redirect_stdout
 from contextvars import ContextVar
 from functools import wraps
@@ -27,6 +32,8 @@ if __name__ == "__main__":
     sys.excepthook = lambda error_type, error, traceback: report(error, stage="startup")
 
 SUPPORTED_VERSION = "3.0.3"
+CATCH_UP_FLAG = "--catch-up"
+CATCH_UP_MAX_DAYS = 28
 log = logging.getLogger("diabetes.combo_bolus")
 current_completion = ContextVar("diabetes_completion", default=None)
 
@@ -85,6 +92,63 @@ def startup():
     return active
 
 
+def catch_up_window(newest, now, max_days=CATCH_UP_MAX_DAYS):
+    """Start of the hourly window, or None for the stock one day.
+
+    newest is the newest Nightscout pump row (None when there is none in max_days).
+    Each processor still skips events at or before its own last upload, so a wider
+    window re-sends nothing; it only lets a delayed Tandem backlog be fetched.
+    """
+    if newest is not None and newest >= now - timedelta(days=1):
+        return None
+    floor = now - timedelta(days=max_days)
+    return floor if newest is None or newest < floor else newest
+
+
+def newest_pump_row(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
+    """Newest basal or bolus treatment tconnectsync uploaded, within max_days.
+
+    The date filter matters: a bare count= query only sees Nightscout's default
+    ~96 h window, which is exactly what a multi-day stall falls outside.
+    """
+    from tconnectsync.parser.nightscout import BASAL_EVENTTYPE, BOLUS_EVENTTYPE
+    import arrow
+
+    since = now - timedelta(days=max_days)
+    newest = None
+    for event_type in (BASAL_EVENTTYPE, BOLUS_EVENTTYPE):
+        row = nightscout.last_uploaded_entry(event_type, time_start=since)
+        if row and row.get("created_at"):
+            created = arrow.get(row["created_at"])
+            newest = created if newest is None else max(newest, created)
+    return newest
+
+
+def catch_up_arguments(argv):
+    """Replace --catch-up with --days 1 or a --start-date/--end-date window."""
+    if CATCH_UP_FLAG not in argv[1:]:
+        return argv
+    rest = [argv[0]] + [item for item in argv[1:] if item != CATCH_UP_FLAG]
+    import arrow
+    from tconnectsync.nightscout import NightscoutApi
+    from tconnectsync import secret
+
+    zone = secret.TIMEZONE_NAME
+    now = arrow.utcnow()  # window math in UTC, so a DST change never shifts it an hour
+    # Never ignore_conn_errors here: an unreachable Nightscout would read as "no pump
+    # row" and silently widen the window to the 28-day floor. Fail the run instead.
+    nightscout = NightscoutApi(secret.NS_URL, secret.NS_SECRET,
+                               skip_verify=secret.NS_SKIP_TLS_VERIFY,
+                               ignore_conn_errors=False)
+    start = catch_up_window(newest_pump_row(nightscout, now), now)
+    if start is None:
+        return rest + ["--days", "1"]
+    start = start.to(zone)
+    print("Catching up: newest Nightscout pump row is older than a day; reading Tandem Source from %s"
+          % start.isoformat(), file=sys.stderr)
+    return rest + ["--start-date", start.isoformat(), "--end-date", now.to(zone).isoformat()]
+
+
 class CompletionDiagnosticFilter(logging.Filter):
     def __init__(self):
         super().__init__()
@@ -111,6 +175,7 @@ def main():
             print("combo patch %s for tconnectsync %s" % ("loaded" if active else "NOT loaded", SUPPORTED_VERSION))
             return 0 if active else 1
         phase = "sync completion"
+        sys.argv = catch_up_arguments(sys.argv)
         if active:
             process_log.addFilter(completion)
         from tconnectsync import main as tconnect_main

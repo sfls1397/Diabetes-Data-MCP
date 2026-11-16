@@ -3,7 +3,8 @@
 # Credentials come from Keychain at run time and are never written to disk or logs:
 #   diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
 #   diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
-# Missing credentials exit 2. No args = the hourly run the VM used.
+# Missing credentials exit 2. No args = the hourly run: one day, or from the newest
+# Nightscout pump row when that is older (--catch-up, capped at 28 days).
 # Runs tconnectsync through diabetes_tconnectsync.py, which applies the combo-bolus mapping
 # (tconnectsync/combo_bolus.py). `diabetes-tconnectsync enrich START END [--apply]` re-maps
 # combos already stored in Nightscout.
@@ -38,5 +39,5 @@ if [ "${1:-}" = enrich ]; then
   shift
   exec "$PY" "$HERE/enrich_combos.py" "$@"
 fi
-[ $# -gt 0 ] || set -- --days 1 --features BASAL BOLUS PUMP_EVENTS PROFILES
+[ $# -gt 0 ] || set -- --catch-up --features BASAL BOLUS PUMP_EVENTS PROFILES
 exec "$PY" "$HERE/diabetes_tconnectsync.py" "$@"
