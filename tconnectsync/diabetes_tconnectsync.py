@@ -15,7 +15,6 @@ WARNING is logged (uploads continue as stock).
 """
 import logging
 import os
-import re
 import sys
 from datetime import timedelta
 from contextlib import redirect_stderr, redirect_stdout
@@ -163,26 +162,36 @@ def catch_up_arguments(argv):
     return rest + ["--start-date", start.isoformat(), "--end-date", now.to(zone).isoformat()]
 
 
-class CompletionDiagnosticFilter(logging.Filter):
+class SyncCompletion(logging.Filter):
     def __init__(self):
         super().__init__()
-        self.emitted = False
-        self.auto_update = False
+        self.one_shot = False
+        self.zero_events = False
+        self.failed = False
 
     def filter(self, record):
-        if (not self.emitted and not self.auto_update
-                and record.levelno == logging.INFO and isinstance(record.msg, str)
-                and re.fullmatch(r"Processed 0 events\. Last event ID seen: -?\d+", record.msg)):
-            report(stage="sync completion", kind="unknown")
-            self.emitted = True
+        if record.levelno >= logging.ERROR:
+            self.failed = True
         return True
+
+
+def track_processed_count(original):
+    @wraps(original)
+    def process(*args, **kwargs):
+        result = original(*args, **kwargs)
+        completion = current_completion.get()
+        if completion is not None and completion.one_shot:
+            completion.zero_events = result[0] == 0
+        return result
+    return process
 
 
 def main():
     phase = "startup"
-    completion = CompletionDiagnosticFilter()
+    active = False
+    completion = SyncCompletion()
     completion_token = current_completion.set(completion)
-    process_log = logging.getLogger("tconnectsync.sync.tandemsource.process")
+    profile_log = logging.getLogger("tconnectsync.sync.tandemsource.update_profiles")
     try:
         active = startup()
         if "--combo-selftest" in sys.argv:
@@ -191,15 +200,18 @@ def main():
         phase = "sync completion"
         sys.argv = catch_up_arguments(sys.argv)
         if active:
-            process_log.addFilter(completion)
+            profile_log.addFilter(completion)
         from tconnectsync import main as tconnect_main
         result = tconnect_main()
-        if result and not completion.emitted:
+        if result:
             report(stage="sync completion", kind="unknown")
         return result
     except SystemExit as error:
-        if error.code and not completion.emitted:
-            argument_failure = getattr(error, "_diabetes_argument_failure", False)
+        argument_failure = getattr(error, "_diabetes_argument_failure", False)
+        if (active and not argument_failure and type(error.code) is int and error.code == 1
+                and completion.zero_events and not completion.failed):
+            return 0
+        if error.code:
             report(stage="startup" if argument_failure else phase,
                    kind="parse" if argument_failure else "unknown")
         if error.code is not None and not isinstance(error.code, int):
@@ -209,7 +221,7 @@ def main():
         report(error, kind=category(error) if phase == "startup" else tandem_category(error))
         return 1
     finally:
-        process_log.removeFilter(completion)
+        profile_log.removeFilter(completion)
         current_completion.reset(completion_token)
 
 
@@ -231,7 +243,7 @@ def protected_arguments(original):
         sys.stderr.write(errors.getvalue())
         completion = current_completion.get()
         if completion is not None:
-            completion.auto_update = parsed.auto_update
+            completion.one_shot = not (parsed.auto_update or parsed.check_login)
         return parsed
     parse._diabetes_diagnostics = True
     return parse
@@ -240,6 +252,9 @@ def protected_arguments(original):
 class RecoveredConnectionLogger(logging.LoggerAdapter):
     def warning(self, message, *args, **kwargs):
         if message == "Ignoring ConnectionError because ignore_conn_errors=true" and args:
+            completion = current_completion.get()
+            if completion is not None:
+                completion.failed = True
             report(stage="Nightscout fetch", kind=tandem_category(args[0]))
             return
         return self.logger.warning(message, *args, **kwargs)
@@ -309,6 +324,8 @@ def install_diagnostics():
             original = getattr(owner, method)
             if not getattr(original, "_diabetes_diagnostics", False):
                 wrapped = staged(name)(original)
+                if owner is ProcessTimeRange:
+                    wrapped = track_processed_count(wrapped)
                 wrapped._diabetes_diagnostics = True
                 setattr(owner, method, wrapped)
 

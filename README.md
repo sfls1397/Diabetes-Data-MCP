@@ -218,7 +218,7 @@ sh "$PKG/tconnectsync/install.sh"
 sh "$PKG/examples/install-launchagents.sh" "$(command -v node)" tconnectsync
 ```
 
-Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`.
+Log: `~/Library/Logs/diabetes-tconnectsync.sync.log`. A completed one-shot sync with no new events exits successfully and still logs `Processed 0 events`. Authentication, processing and partial-sync failures are not treated as an empty success.
 
 #### Fill a missing pump day by hand
 
