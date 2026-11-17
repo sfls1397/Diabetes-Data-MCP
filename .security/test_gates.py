@@ -8,11 +8,69 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('gate', HERE / 'scan.py')
 gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
+
+head_spec = importlib.util.spec_from_file_location('local_gate', HERE / 'local-gate.py')
+local_gate = importlib.util.module_from_spec(head_spec)
+head_spec.loader.exec_module(local_gate)
+
+
+class HeadVisibility(unittest.TestCase):
+    def test_matching_head_needs_no_wait(self):
+        ready = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main', 'headRefOid': 'wanted'}
+        with patch.object(local_gate, 'gh', return_value=ready) as view, \
+                patch.object(local_gate.time, 'sleep') as sleep:
+            local_gate.require_pr_head('31', 'wanted')
+        view.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_retries_until_the_exact_head_is_visible(self):
+        pending = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main', 'headRefOid': 'old'}
+        ready = dict(pending, headRefOid='wanted')
+        with patch.object(local_gate, 'gh', side_effect=[pending, pending, ready]) as view, \
+                patch.object(local_gate.time, 'sleep') as sleep:
+            local_gate.require_pr_head('31', 'wanted')
+        self.assertEqual(view.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_wrong_head_is_bounded_and_still_blocks(self):
+        pending = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main', 'headRefOid': 'other'}
+        with patch.object(local_gate, 'gh', return_value=pending) as view, \
+                patch.object(local_gate.time, 'sleep') as sleep:
+            with self.assertRaises(local_gate.GateError):
+                local_gate.require_pr_head('31', 'wanted')
+        self.assertEqual(view.call_count, 5)
+        self.assertEqual(sleep.call_count, 4)
+
+    def test_state_is_rechecked_after_waiting(self):
+        pending = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main', 'headRefOid': 'old'}
+        closed = dict(pending, state='CLOSED', headRefOid='wanted')
+        with patch.object(local_gate, 'gh', side_effect=[pending, closed]) as view, \
+                patch.object(local_gate.time, 'sleep') as sleep:
+            with self.assertRaises(local_gate.GateError):
+                local_gate.require_pr_head('31', 'wanted')
+        self.assertEqual(view.call_count, 2)
+        sleep.assert_called_once_with(5)
+
+    def test_closed_draft_wrong_base_and_api_errors_never_retry(self):
+        ready = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main', 'headRefOid': 'wanted'}
+        for invalid in [dict(ready, state='CLOSED'), dict(ready, isDraft=True),
+                        dict(ready, baseRefName='other')]:
+            with patch.object(local_gate, 'gh', return_value=invalid), \
+                    patch.object(local_gate.time, 'sleep') as sleep:
+                with self.assertRaises(local_gate.GateError):
+                    local_gate.require_pr_head('31', 'wanted')
+                sleep.assert_not_called()
+        with patch.object(local_gate, 'gh', side_effect=local_gate.GateError('API unavailable')), \
+                patch.object(local_gate.time, 'sleep') as sleep:
+            with self.assertRaises(local_gate.GateError):
+                local_gate.require_pr_head('31', 'wanted')
+            sleep.assert_not_called()
 
 
 class Gates(unittest.TestCase):

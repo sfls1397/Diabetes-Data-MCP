@@ -138,7 +138,7 @@ export const TOOL_DEFINITIONS = [
   {
     name: "query_raw",
     description:
-      "Read-only single SELECT (or WITH … SELECT) for a question the other tools do not answer. Prefer the structured tools. Tables: sgv(date_ms UTC ms, date_string, sgv, direction, device, type, raw_json), treatments(id, created_at ISO UTC, timestamp_ms, event_type, insulin, carbs, duration_min, rate, percent, absolute, entered_by, notes, raw_json), daily_stats(day, tir_80_180, under_80, over_180, avg_mgdl, cv_pct, tdd_u, bolus_u, basal_u, sgv_count, source, updated_at), weekly_stats(week_ending, week_start, …, trend_note), meta(key, value). SQLite date functions are UTC. Results are capped at 1000 rows.",
+      "Read-only single SELECT (or WITH … SELECT) for a question the other tools do not answer. Prefer the structured tools. Tables: sgv(date_ms UTC ms, date_string, sgv, direction, device, type, raw_json), treatments(id, created_at ISO UTC, timestamp_ms, event_type, insulin, carbs, duration_min, rate, percent, absolute, entered_by, notes, raw_json), daily_stats(day, tir_80_180, under_80, over_180, avg_mgdl, cv_pct, tdd_u, bolus_u, basal_u, sgv_count, source, updated_at), weekly_stats(week_ending, week_start, …, trend_note), meta(key, value). treatments.timestamp_ms may be NULL; use CAST(strftime('%s', substr(created_at,1,19)) AS INTEGER)*1000 for UTC epoch milliseconds when joining or filtering treatments. SQLite date functions are UTC. Results are capped at 1000 rows.",
     inputSchema: {
       type: "object",
       properties: {

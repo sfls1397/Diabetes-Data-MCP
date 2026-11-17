@@ -196,6 +196,40 @@ describe("MCP HTTP server token", () => {
   });
 });
 
+describe("Nightscout prove credentials", () => {
+  function run(extra: Record<string, string>) {
+    fs.mkdirSync(path.join(dir, "runtime/nightscout"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "lsof"), "#!/bin/sh\nprintf 'COMMAND PID USER FD TYPE DEVICE SIZE NODE NAME\\nx x x x x x x x 127.0.0.1:27017\\n'\n");
+    fs.writeFileSync(path.join(dir, "curl"), `#!/bin/sh
+case " $* " in *" -K - "*) cat >> "${dir}/headers" ;; esac
+printf '401'
+`);
+    fs.writeFileSync(path.join(dir, "node-probe"), "#!/bin/sh\ncat >/dev/null\n");
+    for (const executable of ["lsof", "curl", "node-probe"]) fs.chmodSync(path.join(dir, executable), 0o700);
+    return spawnSync("/bin/sh", [path.join(ROOT, "nightscout/prove.sh")], {
+      env: baseEnv({ NODE_BIN: path.join(dir, "node-probe"), DIABETES_NIGHTSCOUT_HOME: dir, ...extra }),
+      encoding: "utf8"
+    });
+  }
+
+  it("uses API_SECRET without reading the Keychain", () => {
+    fakeKeychain();
+    expect(run({ API_SECRET: "fixture-env-secret" }).status).toBe(0);
+    expect(keychainReads()).toEqual([]);
+    expect(fs.readFileSync(path.join(dir, "headers"), "utf8")).toContain("c5730c5c7fb9f1cf5d8a45bf619b4a1e3f00f55e");
+  });
+
+  it("falls back for an empty environment value and fails before HTTP when missing", () => {
+    fakeKeychain();
+    expect(run({ API_SECRET: "" }).status).toBe(0);
+    expect(keychainReads()).toEqual(["diabetes-sqlite/api-secret"]);
+    fs.rmSync(path.join(dir, "headers"));
+    fakeKeychain(["diabetes-sqlite/api-secret"]);
+    expect(run({ API_SECRET: "" }).status).toBe(1);
+    expect(fs.existsSync(path.join(dir, "headers"))).toBe(false);
+  });
+});
+
 it("proves the sync prefers NIGHTSCOUT_URL and NIGHTSCOUT_API_SECRET, each on its own", () => {
   const out = execFileSync("python3", [path.join(ROOT, "tests/test_env_secrets.py")], { encoding: "utf8", stdio: "pipe" });
   expect(out).toBe("");

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import { ensureAppDir, resolveConfig } from "./config.js";
 import { openDatabaseReadOnly } from "./db/open.js";
-import { KEYCHAIN_ACCOUNT, KEYCHAIN_SERVICE, loadOrCreateHttpAuthToken, readKeychainSecret } from "./mcp/httpAuth.js";
+import { loadOrCreateHttpAuthToken } from "./mcp/httpAuth.js";
 import { runHttpStdioProxy } from "./mcp/proxy.js";
 import { startHttpServer, startStdioServer } from "./mcp/server.js";
 import { getAppDir } from "./paths.js";
@@ -33,8 +33,7 @@ async function main(): Promise<void> {
   ensureAppDir(getAppDir());
 
   if (command === "http-token") {
-    const existing = readKeychainSecret(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT);
-    console.log(existing ?? loadOrCreateHttpAuthToken().token);
+    console.log(loadOrCreateHttpAuthToken().token);
     return;
   }
   if (command === "http-proxy") {

@@ -435,7 +435,11 @@ class RuntimeTests(unittest.TestCase):
         argv = ['fixture', '--catch-up'] + features
         recent = arrow.utcnow().shift(minutes=-50).isoformat()
         result, output, urls = self.catch_up(argv, {'Temp Basal': {'created_at': recent}})
-        self.assertEqual(result, ['fixture'] + features + ['--days', '1'])
+        self.assertEqual(result[:-4], ['fixture'] + features)
+        self.assertEqual(result[-4], '--start-date')
+        self.assertEqual(result[-2], '--end-date')
+        self.assertTrue(result[-3].endswith(('-06:00', '-05:00')))
+        self.assertAlmostEqual((arrow.get(result[-1]) - arrow.get(result[-3])).total_seconds(), 86400)
         self.assertEqual(output, '')
         # The date filter keeps the lookup outside Nightscout's default ~96 h window.
         self.assertEqual(len(urls), 2)
@@ -448,7 +452,7 @@ class RuntimeTests(unittest.TestCase):
                                                  'Combo Bolus': {'created_at': bolus.isoformat()}})
         self.assertEqual(result[:-4], ['fixture'] + features)
         self.assertEqual(result[-4], '--start-date')
-        self.assertEqual(arrow.get(result[-3]), basal)
+        self.assertEqual(arrow.get(result[-3]), bolus)
         self.assertTrue(result[-3].endswith(('-06:00', '-05:00')))
         self.assertEqual(result[-2], '--end-date')
         self.assertLess(abs((arrow.get(result[-1]) - arrow.utcnow()).total_seconds()), 60)
@@ -461,6 +465,37 @@ class RuntimeTests(unittest.TestCase):
         # Without the flag (hand runs, recipes) the arguments pass through untouched.
         result, output, urls = self.catch_up(['fixture', '--days', '1'], {})
         self.assertEqual((result, output, urls), (['fixture', '--days', '1'], '', []))
+
+    def test_catch_up_includes_the_lagging_type_and_uses_utc_across_dst(self):
+        import arrow
+        for instant in ['2026-11-02T07:35:00Z', '2026-03-09T07:35:00Z']:
+            now = arrow.get(instant)
+            for lagging_type in ['Temp Basal', 'Combo Bolus']:
+                rows = {kind: {'created_at': now.shift(hours=-2).isoformat()}
+                        for kind in ['Temp Basal', 'Combo Bolus']}
+                rows[lagging_type]['created_at'] = now.shift(days=-4).isoformat()
+                with patch('arrow.utcnow', return_value=now):
+                    result, _, _ = self.catch_up(['fixture', '--catch-up', '--pretend'], rows)
+                self.assertEqual(arrow.get(result[-3]), now.shift(days=-4))
+                self.assertEqual(arrow.get(result[-1]), now)
+                with patch('arrow.utcnow', return_value=now):
+                    result, _, _ = self.catch_up(['fixture', '--catch-up'], {})
+                self.assertEqual((now - arrow.get(result[-3])).total_seconds(), 28 * 86400)
+
+    def test_device_choice_logs_mask_serials_and_device_metadata(self):
+        diabetes_tconnectsync.install()
+        logger = logging.getLogger('tconnectsync.sync.tandemsource.choose_device')
+        for message in ["Found 1 pumps: dict_keys(['fixture-serial'])",
+                        'Using pump with serial: fixture-serial (deviceId: fixture-device)',
+                        'Unknown device fixture-serial']:
+            record = logging.LogRecord(logger.name, logging.INFO, '', 1, message, (), None)
+            self.assertTrue(logger.filter(record))
+            self.assertNotIn('fixture-serial', record.getMessage())
+            self.assertNotIn('fixture-device', record.getMessage())
+        process_record = logging.LogRecord('fixture', logging.INFO, '', 1, 'Processed 3 events', (), None)
+        process_logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
+        self.assertTrue(process_logger.filter(process_record))
+        self.assertEqual(process_record.getMessage(), 'Processed 3 events')
 
     def test_catch_up_flag_never_reaches_upstream_and_failures_stay_staged(self):
         seen = []
