@@ -6,7 +6,7 @@
 #     <- diabetes-tconnectsync / tconnect-email, tconnect-password, pump-serial-number
 #   NS_SECRET <- diabetes-sqlite / api-secret  (the Nightscout API_SECRET, shared with the sync)
 # Missing credentials exit 2. No args = the hourly run: one day, or from the newest
-# Nightscout pump row when that is older (--catch-up, capped at 28 days).
+# available per-type Nightscout pump watermark when older (--catch-up, capped at 28 days).
 # Runs tconnectsync through diabetes_tconnectsync.py, which applies the combo-bolus mapping
 # (tconnectsync/combo_bolus.py). `diabetes-tconnectsync enrich START END [--apply]` re-maps
 # combos already stored in Nightscout.

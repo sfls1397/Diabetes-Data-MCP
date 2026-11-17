@@ -11,6 +11,14 @@ function call(name: string, args: Record<string, unknown> = {}): any {
 }
 
 describe("tool list", () => {
+  it("documents and executes the created_at fallback for NULL treatment timestamps", () => {
+    const description = TOOL_DEFINITIONS.find((tool) => tool.name === "query_raw")!.description;
+    expect(description).toContain("timestamp_ms may be NULL");
+    const result = call("query_raw", {
+      sql: "SELECT CAST(strftime('%s', substr(created_at,1,19)) AS INTEGER)*1000 AS epoch_ms FROM treatments WHERE timestamp_ms IS NULL LIMIT 1"
+    });
+    expect(result.rows[0].epoch_ms).toBeGreaterThan(0);
+  });
   it("exposes the 8 locked V1 tools unchanged, then the 4 profile tools, all read-only", () => {
     expect(TOOL_DEFINITIONS.map((t) => t.name)).toEqual([
       "sync_status",

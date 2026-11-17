@@ -8,7 +8,7 @@ WARNING is logged (uploads continue as stock).
 
     diabetes_tconnectsync.py --combo-selftest   verify the hook loads, then exit
     diabetes_tconnectsync.py --catch-up [tconnectsync args]
-        the hourly run: one day, or from the newest Nightscout pump row when that is
+        the hourly run: one day, or from the oldest pump-type watermark when that is
         older (capped at CATCH_UP_MAX_DAYS), so a pump that stopped reporting to Tandem
         Source heals once its backlog arrives
     diabetes_tconnectsync.py [tconnectsync args]
@@ -51,6 +51,16 @@ class AuthLogFilter(logging.Filter):
         return True
 
 
+class PumpLogFilter(logging.Filter):
+    def filter(self, record):
+        record.msg = 'Tandem pump selection: %s' % record.levelname.lower()
+        record.args = ()
+        record.exc_info = None
+        record.exc_text = None
+        record.stack_info = None
+        return True
+
+
 def install():
     """Hook ProcessBolus.process. Returns True when the mapping is active."""
     from importlib.metadata import version
@@ -65,6 +75,9 @@ def install():
     auth_log = logging.getLogger('tconnectsync.api.tandemsource')
     if not any(isinstance(item, AuthLogFilter) for item in auth_log.filters):
         auth_log.addFilter(AuthLogFilter())
+    pump_log = logging.getLogger('tconnectsync.sync.tandemsource.choose_device')
+    if not any(isinstance(item, PumpLogFilter) for item in pump_log.filters):
+        pump_log.addFilter(PumpLogFilter())
 
     if getattr(process_bolus.ProcessBolus.process, "_diabetes_combo", False):
         return True
@@ -92,21 +105,21 @@ def startup():
     return active
 
 
-def catch_up_window(newest, now, max_days=CATCH_UP_MAX_DAYS):
+def catch_up_window(watermark, now, max_days=CATCH_UP_MAX_DAYS):
     """Start of the hourly window, or None for the stock one day.
 
-    newest is the newest Nightscout pump row (None when there is none in max_days).
+    watermark is the oldest available per-type last-upload time, or None.
     Each processor still skips events at or before its own last upload, so a wider
     window re-sends nothing; it only lets a delayed Tandem backlog be fetched.
     """
-    if newest is not None and newest >= now - timedelta(days=1):
+    if watermark is not None and watermark >= now - timedelta(days=1):
         return None
     floor = now - timedelta(days=max_days)
-    return floor if newest is None or newest < floor else newest
+    return floor if watermark is None or watermark < floor else watermark
 
 
-def newest_pump_row(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
-    """Newest basal or bolus treatment tconnectsync uploaded, within max_days.
+def oldest_pump_watermark(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
+    """Oldest of the available per-type last-upload times, within max_days.
 
     The date filter matters: a bare count= query only sees Nightscout's default
     ~96 h window, which is exactly what a multi-day stall falls outside.
@@ -115,17 +128,17 @@ def newest_pump_row(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
     import arrow
 
     since = now - timedelta(days=max_days)
-    newest = None
+    oldest = None
     for event_type in (BASAL_EVENTTYPE, BOLUS_EVENTTYPE):
         row = nightscout.last_uploaded_entry(event_type, time_start=since)
         if row and row.get("created_at"):
             created = arrow.get(row["created_at"])
-            newest = created if newest is None else max(newest, created)
-    return newest
+            oldest = created if oldest is None else min(oldest, created)
+    return oldest
 
 
 def catch_up_arguments(argv):
-    """Replace --catch-up with --days 1 or a --start-date/--end-date window."""
+    """Replace --catch-up with an offset-aware --start-date/--end-date window."""
     if CATCH_UP_FLAG not in argv[1:]:
         return argv
     rest = [argv[0]] + [item for item in argv[1:] if item != CATCH_UP_FLAG]
@@ -140,12 +153,13 @@ def catch_up_arguments(argv):
     nightscout = NightscoutApi(secret.NS_URL, secret.NS_SECRET,
                                skip_verify=secret.NS_SKIP_TLS_VERIFY,
                                ignore_conn_errors=False)
-    start = catch_up_window(newest_pump_row(nightscout, now), now)
+    start = catch_up_window(oldest_pump_watermark(nightscout, now), now)
     if start is None:
-        return rest + ["--days", "1"]
+        start = now - timedelta(days=1)
+    else:
+        print("Catching up: a Nightscout pump type is older than a day; reading Tandem Source from %s"
+              % start.to(zone).isoformat(), file=sys.stderr)
     start = start.to(zone)
-    print("Catching up: newest Nightscout pump row is older than a day; reading Tandem Source from %s"
-          % start.isoformat(), file=sys.stderr)
     return rest + ["--start-date", start.isoformat(), "--end-date", now.to(zone).isoformat()]
 
 

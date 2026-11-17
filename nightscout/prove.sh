@@ -12,8 +12,14 @@ fail=0
 ok()  { echo "PASS  $*"; }
 bad() { echo "FAIL  $*"; fail=1; }
 
-H=$(security find-generic-password -s diabetes-sqlite -a api-secret -w 2>/dev/null | tr -d '\n' | shasum -a 1 | cut -d' ' -f1)
-[ ${#H} -eq 40 ] || { echo "FAIL  Keychain diabetes-sqlite/api-secret missing"; exit 1; }
+SECRET=${API_SECRET:-}
+if [ -z "$SECRET" ]; then
+  SECRET=$(security find-generic-password -s diabetes-sqlite -a api-secret -w 2>/dev/null) || SECRET=
+fi
+[ -n "$SECRET" ] || { echo "FAIL  API_SECRET and Keychain diabetes-sqlite/api-secret missing"; exit 1; }
+H=$(printf '%s' "$SECRET" | shasum -a 1 | cut -d' ' -f1)
+unset SECRET
+[ ${#H} -eq 40 ] || { echo "FAIL  API secret hashing failed"; exit 1; }
 authget() { printf 'header = "api-secret: %s"\n' "$H" | curl -sS -m 10 -K - "$@"; }
 
 # Listeners: mongod loopback only; Nightscout on its configured bind.

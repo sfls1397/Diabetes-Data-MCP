@@ -163,6 +163,18 @@ def record(repo, sha, number, results, hashes):
     return passed
 
 
+def require_pr_head(number, local):
+    for attempt in range(5):
+        pr = gh(['pr', 'view', number, '--json', 'headRefOid,baseRefName,state,isDraft'])
+        if pr['state'] != 'OPEN' or pr['isDraft'] or pr['baseRefName'] != 'main':
+            raise GateError('PR must be open, ready, and target main')
+        if local == pr['headRefOid']:
+            return
+        if attempt < 4:
+            time.sleep(5)
+    raise GateError('Check out the PR head first; the local commit is not the PR head')
+
+
 def main():
     if len(sys.argv) != 2 or not re.fullmatch(r'[1-9][0-9]*|deploy', sys.argv[1]):
         raise GateError('Use local-gate.py PR_NUMBER (from the reviewed PR checkout) or local-gate.py deploy')
@@ -173,11 +185,7 @@ def main():
     number = None
     if sys.argv[1] != 'deploy':
         number = sys.argv[1]
-        pr = gh(['pr', 'view', number, '--json', 'headRefOid,baseRefName,state,isDraft'])
-        if pr['state'] != 'OPEN' or pr['isDraft'] or pr['baseRefName'] != 'main':
-            raise GateError('PR must be open, ready, and target main')
-        if local != pr['headRefOid']:
-            raise GateError('Check out the PR head first; the local commit is not the PR head')
+        require_pr_head(number, local)
     with tempfile.TemporaryDirectory(prefix='local-gate-logs-') as logs:
         try:
             results, *hashes = run_gate(local, Path(logs), env)
