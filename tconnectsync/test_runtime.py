@@ -187,11 +187,14 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(record['stage'], 'startup')
 
     def run_sync_fixture(self, *, count=0, events_present=False, choose_error=None,
-                         write_error=None, partial=None, args=(), supported=True):
+                         write_error=None, partial=None, args=(), supported=True, pumps=None):
         import arrow
         import requests
         from tconnectsync.nightscout import NightscoutApi
         from tconnectsync.sync.tandemsource.process import EventClass, ProcessTimeRange
+        from tconnectsync.sync.tandemsource.update_profiles import UpdateProfiles
+        from tconnectsync.domain.tandemsource.pump_settings import PumpSettings
+        from tconnectsync.parser.nightscout import NightscoutEntry
 
         output = StringIO()
         logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
@@ -204,6 +207,9 @@ class RuntimeTests(unittest.TestCase):
         processor.write.return_value = count
         processor.write.side_effect = write_error
         nightscout = NightscoutApi('https://fixture.invalid', 'fixture', ignore_conn_errors=True)
+        nightscout.current_profile = Mock(return_value={'defaultProfile': 'fixture', 'store': {'fixture': {}}})
+        pump_settings = SimpleNamespace(profiles=SimpleNamespace(
+            activeIdp=1, profile=[SimpleNamespace(name='fixture', idp=1)]))
         updater = Mock()
 
         def pump_events(*_, **__):
@@ -224,6 +230,10 @@ class RuntimeTests(unittest.TestCase):
 
         updater.update.side_effect = update_profile
         updater_classes = [Mock(__name__='FixtureUpdater', return_value=updater)] if partial == 'profile' else []
+        args = (*args, '--features', 'BASAL') if pumps is None and partial != 'profile' else args
+        if pumps is not None:
+            updater_classes = [UpdateProfiles]
+        tandem = SimpleNamespace(pump_events=pump_events, get_pumper=lambda: {'pumps': pumps})
         version = nullcontext() if supported else patch('importlib.metadata.version', return_value='99.0.0')
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
@@ -233,10 +243,12 @@ class RuntimeTests(unittest.TestCase):
             with patch('sys.argv', ['fixture', *args]), redirect_stderr(output), version, \
                     patch('socket.socket.connect', side_effect=AssertionError('offline fixture')), \
                     patch('tconnectsync.nightscout.requests.get', side_effect=requests.ConnectionError('fixture-private-token')), \
-                    patch('tconnectsync.TConnectApi', return_value=SimpleNamespace(tandemsource=SimpleNamespace(pump_events=pump_events))), \
+                    patch('tconnectsync.TConnectApi', return_value=SimpleNamespace(tandemsource=tandem)), \
                     patch('tconnectsync.NightscoutApi', return_value=nightscout), \
                     patch('tconnectsync.TandemSourceChooseDevice', return_value=chooser), \
                     patch('tconnectsync.TandemSourceAutoupdate', return_value=SimpleNamespace(process=auto_update)), \
+                    patch.object(PumpSettings, 'from_dict', return_value=pump_settings), \
+                    patch.object(NightscoutEntry, 'tandemsource_profile_store', return_value={}), \
                     patch.object(EventClass, 'for_event', return_value=SimpleNamespace(name='FIXTURE')), \
                     patch.object(ProcessTimeRange, 'event_classes', {'FIXTURE': Mock(return_value=processor)}), \
                     patch.object(ProcessTimeRange, 'updater_classes', updater_classes):
@@ -259,6 +271,11 @@ class RuntimeTests(unittest.TestCase):
                 self.assertFalse(any(line.startswith('{') for line in lines))
                 self.assertEqual(lines[-1], f'2026-11-03 14:35:12 INFO Processed {count} events. Last event ID seen: {last}')
 
+    def test_zero_events_with_current_profiles_succeeds(self):
+        status, lines = self.run_sync_fixture(pumps=[{'assignmentId': 'fixture', 'settings': {'details': {'fixture': True}}}])
+        self.assertEqual(status, 0)
+        self.assertFalse(any(line.startswith('{') for line in lines))
+
     def test_one_shot_sync_failures_are_not_empty_successes(self):
         from tconnectsync.api.common import ApiException, ApiLoginException
 
@@ -266,6 +283,8 @@ class RuntimeTests(unittest.TestCase):
                  ({'events_present': True, 'write_error': ApiException(503, 'fixture-private-token')}, 'http_5xx', False),
                  ({'partial': 'nightscout', 'args': ('--verbose',)}, 'transport', True),
                  ({'partial': 'profile'}, 'unknown', True),
+                 ({'pumps': []}, 'unknown', True),
+                 ({'pumps': [{'assignmentId': 'fixture'}]}, 'unknown', True),
                  ({'args': ('--auto-u',)}, 'unknown', True),
                  ({'supported': False}, 'unknown', True)]
         for options, category, terminal in cases:

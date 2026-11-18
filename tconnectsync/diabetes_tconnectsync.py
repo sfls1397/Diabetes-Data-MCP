@@ -168,6 +168,7 @@ class SyncCompletion(logging.Filter):
         self.one_shot = False
         self.zero_events = False
         self.failed = False
+        self.profiles_compared = False
 
     def filter(self, record):
         if record.levelno >= logging.ERROR:
@@ -175,13 +176,19 @@ class SyncCompletion(logging.Filter):
         return True
 
 
-def track_processed_count(original):
+def track_completion(original, *, profile_comparison):
+    from tconnectsync.features import PROFILES
+
     @wraps(original)
     def process(*args, **kwargs):
         result = original(*args, **kwargs)
         completion = current_completion.get()
         if completion is not None and completion.one_shot:
-            completion.zero_events = result[0] == 0
+            if profile_comparison:
+                completion.profiles_compared = True
+            else:
+                completion.zero_events = result[0] == 0 and (
+                    PROFILES not in args[0].features or completion.profiles_compared)
         return result
     return process
 
@@ -303,6 +310,7 @@ def install_diagnostics():
     from tconnectsync.api.tandemsource import TandemSourceApi
     from tconnectsync.nightscout import NightscoutApi
     from tconnectsync.sync.tandemsource.process import ProcessTimeRange
+    from tconnectsync.sync.tandemsource.update_profiles import UpdateProfiles
 
     if not getattr(tconnectsync.parse_args, "_diabetes_diagnostics", False):
         tconnectsync.parse_args = protected_arguments(tconnectsync.parse_args)
@@ -318,14 +326,15 @@ def install_diagnostics():
             "last_uploaded_activity", "last_uploaded_devicestatus", "api_status", "current_profile")),
         (NightscoutApi, "Nightscout upload", ("upload_entry", "put_entry", "delete_entry")),
         (ProcessTimeRange, "Tandem parse", ("process",)),
+        (UpdateProfiles, "Tandem parse", ("compare_profiles",)),
     )
     for owner, name, methods in groups:
         for method in methods:
             original = getattr(owner, method)
             if not getattr(original, "_diabetes_diagnostics", False):
                 wrapped = staged(name)(original)
-                if owner is ProcessTimeRange:
-                    wrapped = track_processed_count(wrapped)
+                if owner in (ProcessTimeRange, UpdateProfiles):
+                    wrapped = track_completion(wrapped, profile_comparison=owner is UpdateProfiles)
                 wrapped._diabetes_diagnostics = True
                 setattr(owner, method, wrapped)
 
