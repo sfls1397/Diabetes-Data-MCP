@@ -280,6 +280,8 @@ One time per machine (state lives in `~/.diabetes-data/` and survives package up
 
 **Releases:** bump the version in a PR, merge, and publish a GitHub Release `vX.Y.Z`; `.github/workflows/npm-publish.yml` publishes via npm Trusted Publishing (OIDC, no tokens).
 
+**Before installing a new release:** a successful publish can still be processing at npm for a few minutes, and the registry answers 404 for the new version until it finishes (v1.2.9 on Nov 16 2026). Wait until `npm view diabetes-data-mcp@X.Y.Z version` prints `X.Y.Z`, then run the install line above with `--prefer-online` still in it, so npm does not reuse a cached package list that lacks the new version. A 404 right after a successful publish is only that delay: never republish or bump the version because of it.
+
 LaunchAgents do not load a login shell, so the installer writes the absolute `node` path into `com.diabetes-mcp.server` and `com.diabetes-nightscout.server`.
 
 Every plist starts its package script through `/bin/sh` (or `node`), never the script itself. macOS Background Task Management tracks each LaunchAgent by its executable; when the executable is a file inside the npm package, every upgrade rewrites it and macOS posts another "App Background Activity: … can run in the background" notice. With `/bin/sh` as the executable, upgrades post nothing. The first install after moving an agent to `/bin/sh` posts one last notice, named "sh".
