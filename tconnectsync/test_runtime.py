@@ -9,8 +9,8 @@ import subprocess
 import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
-from contextlib import redirect_stderr
+from unittest.mock import Mock, patch
+from contextlib import nullcontext, redirect_stderr
 from io import StringIO
 
 import jwt
@@ -186,35 +186,135 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(set(record), {'timestamp', 'category', 'stage'})
             self.assertEqual(record['stage'], 'startup')
 
-    def test_zero_event_diagnostic_preserves_watchdog_terminal_line_contract(self):
+    def run_sync_fixture(self, *, count=0, events_present=False, choose_error=None,
+                         write_error=None, partial=None, args=(), supported=True, pumps=None):
+        import arrow
+        import requests
+        from tconnectsync.nightscout import NightscoutApi
+        from tconnectsync.sync.tandemsource.process import EventClass, ProcessTimeRange
+        from tconnectsync.sync.tandemsource.update_profiles import UpdateProfiles
+        from tconnectsync.domain.tandemsource.pump_settings import PumpSettings
+        from tconnectsync.parser.nightscout import NightscoutEntry
+
         output = StringIO()
         logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
         old_level, old_propagate = logger.level, logger.propagate
         handler = logging.StreamHandler(output)
         handler.setFormatter(logging.Formatter('2026-11-03 14:35:12 INFO %(message)s'))
+        events = [SimpleNamespace(eventTimestamp=arrow.get('2026-11-03T20:00:00Z'), seqNum=42)] if events_present else []
+        chooser = SimpleNamespace(choose=Mock(return_value={'assignmentId': 'fixture'}, side_effect=choose_error))
+        processor = Mock()
+        processor.write.return_value = count
+        processor.write.side_effect = write_error
+        nightscout = NightscoutApi('https://fixture.invalid', 'fixture', ignore_conn_errors=True)
+        nightscout.current_profile = Mock(return_value={'defaultProfile': 'fixture', 'store': {'fixture': {}}})
+        pump_settings = SimpleNamespace(profiles=SimpleNamespace(
+            activeIdp=1, profile=[SimpleNamespace(name='fixture', idp=1)]))
+        updater = Mock()
+
+        def pump_events(*_, **__):
+            if partial == 'nightscout':
+                nightscout.last_uploaded_entry('fixture')
+            return events
+
+        def update_profile(_):
+            logging.getLogger('tconnectsync.sync.tandemsource.update_profiles').error(
+                'No current pump profile, so skipping profile update')
+            return False
+
+        def auto_update(tconnect, nightscout, pretend, features):
+            import tconnectsync
+            ProcessTimeRange(tconnect, nightscout, chooser.choose(), pretend, tconnectsync.secret, features).process(
+                arrow.get('2026-11-03T19:00:00Z'), arrow.get('2026-11-03T21:00:00Z'))
+            return 1
+
+        updater.update.side_effect = update_profile
+        updater_classes = [Mock(__name__='FixtureUpdater', return_value=updater)] if partial == 'profile' else []
+        args = (*args, '--features', 'BASAL') if pumps is None and partial != 'profile' else args
+        if pumps is not None:
+            updater_classes = [UpdateProfiles]
+        tandem = SimpleNamespace(pump_events=pump_events, get_pumper=lambda: {'pumps': pumps})
+        version = nullcontext() if supported else patch('importlib.metadata.version', return_value='99.0.0')
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
-
-        def finish():
-            logger.info('Processed 0 events. Last event ID seen: -1')
-            raise SystemExit(1)
-
         try:
             logging.disable(logging.NOTSET)
-            with patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=finish):
-                with redirect_stderr(output), self.assertRaises(SystemExit) as result:
-                    diabetes_tconnectsync.main()
-            self.assertEqual(result.exception.code, 1)
+            with patch('sys.argv', ['fixture', *args]), redirect_stderr(output), version, \
+                    patch('socket.socket.connect', side_effect=AssertionError('offline fixture')), \
+                    patch('tconnectsync.nightscout.requests.get', side_effect=requests.ConnectionError('fixture-private-token')), \
+                    patch('tconnectsync.TConnectApi', return_value=SimpleNamespace(tandemsource=tandem)), \
+                    patch('tconnectsync.NightscoutApi', return_value=nightscout), \
+                    patch('tconnectsync.TandemSourceChooseDevice', return_value=chooser), \
+                    patch('tconnectsync.TandemSourceAutoupdate', return_value=SimpleNamespace(process=auto_update)), \
+                    patch.object(PumpSettings, 'from_dict', return_value=pump_settings), \
+                    patch.object(NightscoutEntry, 'tandemsource_profile_store', return_value={}), \
+                    patch.object(EventClass, 'for_event', return_value=SimpleNamespace(name='FIXTURE')), \
+                    patch.object(ProcessTimeRange, 'event_classes', {'FIXTURE': Mock(return_value=processor)}), \
+                    patch.object(ProcessTimeRange, 'updater_classes', updater_classes):
+                try:
+                    status = diabetes_tconnectsync.main()
+                except SystemExit as error:
+                    status = error.code
         finally:
             logging.disable(logging.CRITICAL)
             logger.removeHandler(handler)
             logger.setLevel(old_level)
             logger.propagate = old_propagate
-        lines = output.getvalue().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertEqual(json.loads(lines[0])['stage'], 'sync completion')
-        self.assertEqual(lines[-1], '2026-11-03 14:35:12 INFO Processed 0 events. Last event ID seen: -1')
+        return status, output.getvalue().splitlines()
+
+    def test_one_shot_sync_completion_event_counts(self):
+        for count, events_present, last in [(0, False, -1), (0, True, 42), (1, True, 42), (70, True, 42)]:
+            with self.subTest(count=count, events_present=events_present):
+                status, lines = self.run_sync_fixture(count=count, events_present=events_present)
+                self.assertEqual(status, 0)
+                self.assertFalse(any(line.startswith('{') for line in lines))
+                self.assertEqual(lines[-1], f'2026-11-03 14:35:12 INFO Processed {count} events. Last event ID seen: {last}')
+
+    def test_zero_events_with_current_profiles_succeeds(self):
+        status, lines = self.run_sync_fixture(pumps=[{'assignmentId': 'fixture', 'settings': {'details': {'fixture': True}}}])
+        self.assertEqual(status, 0)
+        self.assertFalse(any(line.startswith('{') for line in lines))
+
+    def test_one_shot_sync_failures_are_not_empty_successes(self):
+        from tconnectsync.api.common import ApiException, ApiLoginException
+
+        cases = [({'choose_error': ApiLoginException(401, 'fixture-private-token')}, 'auth', False),
+                 ({'events_present': True, 'write_error': ApiException(503, 'fixture-private-token')}, 'http_5xx', False),
+                 ({'partial': 'nightscout', 'args': ('--verbose',)}, 'transport', True),
+                 ({'partial': 'profile'}, 'unknown', True),
+                 ({'pumps': []}, 'unknown', True),
+                 ({'pumps': [{'assignmentId': 'fixture'}]}, 'unknown', True),
+                 ({'args': ('--auto-u',)}, 'unknown', True),
+                 ({'supported': False}, 'unknown', True)]
+        for options, category, terminal in cases:
+            with self.subTest(options=options):
+                status, lines = self.run_sync_fixture(**options)
+                self.assertEqual(status, 1)
+                records = [json.loads(line) for line in lines if line.startswith('{')]
+                self.assertIn(category, [record['category'] for record in records])
+                self.assertEqual(any('Processed 0 events.' in line for line in lines), terminal)
+                self.assertNotIn('fixture-private-token', '\n'.join(lines))
+
+    def test_completion_log_alone_does_not_change_exit_status(self):
+        import tconnectsync
+        logger = logging.getLogger('tconnectsync.sync.tandemsource.process')
+
+        def premature_exit():
+            tconnectsync.parse_args()
+            logger.info('Processed 0 events. Last event ID seen: -1')
+            raise SystemExit(1)
+
+        logging.disable(logging.NOTSET)
+        try:
+            with patch('sys.argv', ['fixture']), patch('tconnectsync.main', side_effect=premature_exit), \
+                    redirect_stderr(StringIO()), self.assertLogs(logger, level='INFO') as log, \
+                    self.assertRaises(SystemExit) as result:
+                diabetes_tconnectsync.main()
+        finally:
+            logging.disable(logging.CRITICAL)
+        self.assertIn('Processed 0 events.', log.output[0])
+        self.assertEqual(result.exception.code, 1)
 
     def test_advisory_outage_blocks(self):
         with patch.object(audit.urllib.request, 'urlopen', side_effect=OSError('fixture outage')):
