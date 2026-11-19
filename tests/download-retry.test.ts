@@ -51,7 +51,7 @@ describe("tconnectsync install.sh fetch()", () => {
   it("passes stall and connect timeouts to curl", () => {
     const dir = setup(flaky(1));
     expect(run(dir).status).toBe(0);
-    expect(calls(dir)[0]).toMatch(/--connect-timeout 30 --speed-limit 1024 --speed-time 30/);
+    expect(calls(dir)[0]).toMatch(/--connect-timeout 30 --speed-limit 1024 --speed-time 30 -C -/);
     expect(calls(dir)[0]).toMatch(/--proto =https --tlsv1\.2/);
   });
   it("retries a stalled download and installs the file once the checksum matches", () => {
@@ -61,6 +61,18 @@ describe("tconnectsync install.sh fetch()", () => {
     expect(calls(dir)).toHaveLength(3);
     expect(fs.readFileSync(path.join(dir, "w.whl"), "utf8")).toBe(BODY);
     expect(fs.existsSync(path.join(dir, "w.whl.tmp"))).toBe(false);
+  });
+  it("resumes the partial file after a stall instead of starting over", () => {
+    // First call: write half the bytes then stall (exit 28). Later calls must see -C - and append the rest.
+    const dir = setup(
+      `while [ $# -gt 0 ]; do case "$1" in -o) out=$2;; -C) resume=1;; esac; shift; done\n` +
+        `if [ ! -s "$out" ]; then printf 'wheel ' > "$out"; exit 28; fi\n` +
+        `[ -n "\${resume:-}" ] || exit 99\nprintf 'bytes\\n' >> "$out"`
+    );
+    const result = run(dir);
+    expect(result.status).toBe(0);
+    expect(calls(dir)).toHaveLength(2);
+    expect(fs.readFileSync(path.join(dir, "w.whl"), "utf8")).toBe(BODY);
   });
   it("stops after the bounded attempts when the download never completes", () => {
     const dir = setup(flaky(99));
@@ -74,7 +86,7 @@ describe("tconnectsync install.sh fetch()", () => {
     const dir = setup(flaky(1, "tampered\n"));
     const result = run(dir);
     expect(result.status).not.toBe(0);
-    expect(calls(dir)).toHaveLength(3);
+    expect(calls(dir)).toHaveLength(5);
     expect(fs.existsSync(path.join(dir, "w.whl"))).toBe(false);
     expect(fs.existsSync(path.join(dir, "w.whl.tmp"))).toBe(false);
   });

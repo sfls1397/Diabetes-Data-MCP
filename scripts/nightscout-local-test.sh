@@ -22,7 +22,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 # A stalled GitHub path used to hang this clone for about 650 s and fail the gate. Abort after STALL seconds below 1 KB/s
 # and retry a bounded number of times from an empty directory; a clone that never completes still fails the gate.
-ATTEMPTS=${DIABETES_DOWNLOAD_ATTEMPTS:-3}
+ATTEMPTS=${DIABETES_DOWNLOAD_ATTEMPTS:-5}
 STALL=${DIABETES_DOWNLOAD_STALL_SECONDS:-30}
 RETRY_DELAY=${DIABETES_DOWNLOAD_RETRY_DELAY:-5}
 CLONE_URL=${DIABETES_LOCAL_GATE_NIGHTSCOUT_URL:-https://github.com/nightscout/cgm-remote-monitor.git}
