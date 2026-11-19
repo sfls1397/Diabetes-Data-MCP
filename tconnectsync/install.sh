@@ -9,11 +9,28 @@ mkdir -p "$HOME_DIR/runtime" "$HOME_DIR/downloads"
 chmod 700 "$HOME_DIR" "$HOME_DIR/runtime" "$HOME_DIR/downloads"
 
 field() { /usr/bin/python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sys.argv[2]][sys.argv[3]])' "$DIR/runtime-profile.json" "$1" "$2"; }
+# A stalled GitHub path used to hang curl for about 650 s and then fail (curl 56). Each attempt now aborts after
+# STALL seconds below 1 KB/s, and the next attempt resumes the partial file (-C -), so a path that stalls part way still
+# makes progress. The checksum is checked once a transfer completes; a complete file that does not match is deleted and
+# fetched again from the start, and a download that never matches still stops the install.
+DOWNLOAD_ATTEMPTS=${DIABETES_DOWNLOAD_ATTEMPTS:-5}
+DOWNLOAD_STALL_SECONDS=${DIABETES_DOWNLOAD_STALL_SECONDS:-30}
+DOWNLOAD_RETRY_DELAY=${DIABETES_DOWNLOAD_RETRY_DELAY:-5}
 fetch() {
   url=$1 file=$2 checksum=$3
   if [ ! -f "$file" ] || ! printf '%s  %s\n' "$checksum" "$file" | shasum -a 256 -c - >/dev/null 2>&1; then
-    curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "$file.tmp"
-    printf '%s  %s\n' "$checksum" "$file.tmp" | shasum -a 256 -c - >/dev/null
+    attempt=1
+    while :; do
+      if curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 30 --speed-limit 1024 --speed-time "$DOWNLOAD_STALL_SECONDS" -C - "$url" -o "$file.tmp"; then
+        if printf '%s  %s\n' "$checksum" "$file.tmp" | shasum -a 256 -c - >/dev/null; then
+          break
+        fi
+        rm -f "$file.tmp"
+      fi
+      [ "$attempt" -lt "$DOWNLOAD_ATTEMPTS" ] || { rm -f "$file.tmp"; echo "Download of $url failed or did not match its checksum after $attempt attempts" >&2; exit 1; }
+      attempt=$((attempt + 1))
+      sleep "$DOWNLOAD_RETRY_DELAY"
+    done
     mv "$file.tmp" "$file"
   fi
 }

@@ -20,7 +20,19 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT INT TERM
-git clone --quiet --depth 1 --branch v15.0.8 https://github.com/nightscout/cgm-remote-monitor.git "$WORK/nightscout"
+# A stalled GitHub path used to hang this clone for about 650 s and fail the gate. Abort after STALL seconds below 1 KB/s
+# and retry a bounded number of times from an empty directory; a clone that never completes still fails the gate.
+ATTEMPTS=${DIABETES_DOWNLOAD_ATTEMPTS:-5}
+STALL=${DIABETES_DOWNLOAD_STALL_SECONDS:-30}
+RETRY_DELAY=${DIABETES_DOWNLOAD_RETRY_DELAY:-5}
+CLONE_URL=${DIABETES_LOCAL_GATE_NIGHTSCOUT_URL:-https://github.com/nightscout/cgm-remote-monitor.git}
+attempt=1
+until git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime="$STALL" clone --quiet --depth 1 --branch v15.0.8 "$CLONE_URL" "$WORK/nightscout"; do
+  rm -rf "${WORK:?}/nightscout"
+  [ "$attempt" -lt "$ATTEMPTS" ] || { echo "Nightscout clone failed after $attempt attempts" >&2; exit 1; }
+  attempt=$((attempt + 1))
+  sleep "$RETRY_DELAY"
+done
 node "$REPO/nightscout/prepare-runtime.mjs" "$WORK/nightscout"
 mkdir "$WORK/db"
 "$MONGOD" --dbpath "$WORK/db" --bind_ip 127.0.0.1 --port "$MONGO_PORT" --logpath "$WORK/mongod.log" --quiet &
