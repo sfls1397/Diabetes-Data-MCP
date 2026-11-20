@@ -135,6 +135,25 @@ class Gates(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             gate.audit(self.root, {'audit': []})
 
+    def test_lint_tool_dependencies_are_audited_with_dev_dependencies_included(self):
+        from unittest.mock import patch
+        lint = self.root / '.lint'
+        lint.mkdir()
+        (lint / 'package.json').write_text('{"devDependencies":{"lint-probe":"1.0.0"}}')
+        (lint / 'package-lock.json').write_text('{"lockfileVersion":3,"packages":{}}')
+        calls = []
+
+        def fake(args, cwd):
+            calls.append((args, cwd))
+            finding = {'lint-probe': {'severity': 'high', 'nodes': [], 'via': []}} if cwd == lint else {}
+            return subprocess.CompletedProcess(args, 1 if finding else 0, json.dumps({'vulnerabilities': finding}).encode(), b'')
+        with patch.object(gate, 'command', fake):
+            gate.audit(self.root, {'audit': []})
+            with self.assertRaises(RuntimeError):
+                gate.audit(lint, {'audit': []}, dev=True)
+        self.assertIn('--omit=dev', calls[0][0])
+        self.assertNotIn('--omit=dev', calls[1][0])
+
     def test_registry_failure_blocks(self):
         self.fake_npm({'error': {'code': 'ENETUNREACH'}}, 1)
         with self.assertRaises(RuntimeError):

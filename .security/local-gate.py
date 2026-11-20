@@ -42,6 +42,8 @@ STANDARD = [
     ('Repository standard probes', ['python3', '.security/test_standard.py']),
 ]
 
+LINT = ('Types and strict lint (tsc, ESLint, Ruff, Pyright, imports, comments)', ['python3', '.security/lint.py', 'gate'])
+
 # A step's own warning lines (scripts/mocha-retry-report.cjs: an upstream Nightscout test that passed only on its retry):
 # shown on this console under the step, never a failure and never sent to GitHub. Only a line that starts with the marker counts.
 GATE_WARNING = re.compile(r'^gate-warning: (.+)$', re.M)
@@ -95,7 +97,14 @@ def steps(tree):
     for args in tests:
         if not isinstance(args, list) or not args or not all(isinstance(a, str) for a in args):
             raise GateError('local-gate.json tests must be argument lists')
-    return STANDARD + [('Tests: ' + ' '.join(args), args) for args in tests]
+    ordered = []
+    for args in tests:
+        ordered.append(('Tests: ' + ' '.join(args), args))
+        if args == ['npm', 'ci']:
+            ordered.append(LINT)
+    if LINT not in ordered:
+        ordered.insert(0, LINT)
+    return STANDARD + ordered
 
 
 def warning_lines(text):
@@ -180,12 +189,16 @@ def main():
         raise GateError('Use local-gate.py PR_NUMBER (from the reviewed PR checkout) or local-gate.py deploy')
     os.chdir(ROOT)
     env = dict(os.environ, PATH=str(Path.home() / '.local/bin') + os.pathsep + os.environ.get('PATH', ''))
+    env.pop('LOCAL_GATE_BASE', None)
     repo = gh(['repo', 'view', '--json', 'nameWithOwner'])['nameWithOwner']
     local = out(['git', 'rev-parse', 'HEAD'])
     number = None
     if sys.argv[1] != 'deploy':
         number = sys.argv[1]
         require_pr_head(number, local)
+        base = subprocess.run(['git', 'merge-base', 'origin/main', local], cwd=ROOT, capture_output=True, text=True)
+        if not base.returncode and re.fullmatch(r'[0-9a-f]{40}', base.stdout.strip()):
+            env['LOCAL_GATE_BASE'] = base.stdout.strip()
     with tempfile.TemporaryDirectory(prefix='local-gate-logs-') as logs:
         try:
             results, *hashes = run_gate(local, Path(logs), env)

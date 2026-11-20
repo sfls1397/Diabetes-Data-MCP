@@ -10,3 +10,4 @@ coverage/
 *.tsbuildinfo
 *.archive.gz
 __pycache__/
+.lint/node_modules

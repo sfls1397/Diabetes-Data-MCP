@@ -192,6 +192,26 @@ class Standard(unittest.TestCase):
             with self.assertRaises(runner.GateError):
                 runner.steps(tree)
 
+    def test_lint_step_runs_right_after_npm_ci_and_before_every_test(self):
+        runner = module('local_gate_lint_order', 'local-gate.py')
+        with tempfile.TemporaryDirectory() as temp:
+            tree = Path(temp)
+            (tree / '.security').mkdir()
+            (tree / '.security/local-gate.json').write_text('{"tests": [["npm", "ci"], ["npm", "test"]]}')
+            names = [step for step, _ in runner.steps(tree)]
+            lint = [name for name in names if name.startswith('Types and strict lint')]
+            self.assertEqual(len(lint), 1)
+            self.assertEqual(names.index(lint[0]), names.index('Tests: npm ci') + 1)
+            self.assertLess(names.index(lint[0]), names.index('Tests: npm test'))
+            (tree / '.security/local-gate.json').write_text('{"tests": [["npm", "test"]]}')
+            names = [step for step, _ in runner.steps(tree)]
+            self.assertLess(names.index(lint[0]), names.index('Tests: npm test'))
+
+    def test_commit_hook_runs_the_staged_lint(self):
+        hook = (Path(__file__).parent.parent / '.githooks/pre-commit').read_text()
+        self.assertIn('python3 .security/lint.py staged', hook)
+        self.assertLess(hook.index('.security/scan.py staged'), hook.index('.security/lint.py staged'))
+
 
 if __name__ == '__main__':
     unittest.main()
