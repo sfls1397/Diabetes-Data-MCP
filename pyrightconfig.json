@@ -1,0 +1,29 @@
+{
+  "pythonVersion": "3.9",
+  "pythonPlatform": "Darwin",
+  "typeCheckingMode": "standard",
+  "enableTypeIgnoreComments": false,
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__"
+  ],
+  "reportArgumentType": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportOptionalOperand": "none",
+  "reportOptionalIterable": "none",
+  "reportOptionalCall": "none",
+  "reportOptionalContextManager": "none",
+  "reportPossiblyUnboundVariable": "none",
+  "reportIndexIssue": "none",
+  "reportOperatorIssue": "none",
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "reportIncompatibleMethodOverride": "none",
+  "reportIncompatibleVariableOverride": "none",
+  "reportUnusedExpression": "none",
+  "reportInvalidStringEscapeSequence": "none",
+  "reportReturnType": "none",
+  "reportFunctionMemberAccess": "none",
+  "reportAssignmentType": "none"
+}

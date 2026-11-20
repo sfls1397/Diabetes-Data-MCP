@@ -16,3 +16,7 @@ fi
 # Additional gates use staged bytes, preserving the privacy scan above.
 python3 .security/metadata.py prospective
 python3 .security/scan.py staged
+
+if [ -f .security/lint.py ] && ! git diff --cached --quiet; then
+  python3 .security/lint.py staged
+fi

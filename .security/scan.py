@@ -58,8 +58,8 @@ def exceptions(policy, kind):
     return accepted
 
 
-def audit(root, policy, all_severities=False):
-    result = command(['npm', 'audit', '--omit=dev', '--audit-level=' + ('low' if all_severities else 'high'), '--json'], root)
+def audit(root, policy, all_severities=False, dev=False):
+    result = command(['npm', 'audit'] + ([] if dev else ['--omit=dev']) + ['--audit-level=' + ('low' if all_severities else 'high'), '--json'], root)
     data = json.loads(result.stdout)
     if data.get('error') or result.returncode not in (0, 1) or 'vulnerabilities' not in data:
         raise RuntimeError('npm audit could not complete; check registry connectivity')
@@ -77,7 +77,7 @@ def audit(root, policy, all_severities=False):
             blocked += 1
     if blocked:
         raise RuntimeError('New or changed high/critical dependency findings block this gate')
-    print('npm audit gate PASS (production dependencies; %s threshold)' % ('low' if all_severities else 'high'))
+    print('npm audit gate PASS (%s dependencies; %s threshold)' % ('lint tool' if dev else 'production', 'low' if all_severities else 'high'))
 
 
 def python_audit(root):
@@ -155,6 +155,8 @@ def full():
                 shutil.copyfile(source, target)
         reviewed = policy(snapshot)
         audit(snapshot, reviewed)
+        if (snapshot / '.lint/package-lock.json').is_file():
+            audit(snapshot / '.lint', reviewed, dev=True)
         runtime = snapshot / 'nightscout/runtime-profile'
         if runtime.is_dir() or (snapshot / 'nightscout/install-runtime.sh').is_file():
             print('Auditing the separately installed Nightscout runtime profile')
@@ -172,6 +174,7 @@ def staged():
         snapshot = Path(directory)
         # Use the index for tools, configuration, package metadata and candidate source.
         required = ['.semgrepignore', 'package.json', 'package-lock.json']
+        required += [x for x in ['.lint/package.json', '.lint/package-lock.json'] if git(['ls-files', '-z', x])]
         runtime_metadata = ['nightscout/runtime-profile/package.json',
                             'nightscout/runtime-profile/package-lock.json']
         if any(x.startswith('nightscout/') for x in changed):
@@ -201,6 +204,8 @@ def staged():
         reviewed = policy(snapshot)
         if any(x in changed for x in ['package.json', 'package-lock.json', '.security/policy.json']):
             audit(snapshot, reviewed)
+        if (snapshot / '.lint/package-lock.json').is_file() and any(x in changed for x in ['.lint/package.json', '.lint/package-lock.json', '.security/policy.json']):
+            audit(snapshot / '.lint', reviewed, dev=True)
         if any(x.startswith('nightscout/') for x in changed):
             runtime = snapshot / 'nightscout/runtime-profile'
             print('Auditing staged Nightscout runtime metadata')
