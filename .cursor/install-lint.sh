@@ -55,7 +55,7 @@ node_root="$lint_home/node-$lock"
 if [[ ! -x "$node_root/node_modules/.bin/eslint" ]]; then
   rm -rf "${node_root:?}"
   cp "$repo_root/.lint/package.json" "$repo_root/.lint/package-lock.json" "$temporary/"
-  npm ci --prefix "$temporary" --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null
+  (cd "$temporary" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null)
   mkdir -p "$temporary/node"
   mv "$temporary/node_modules" "$temporary/package.json" "$temporary/package-lock.json" "$temporary/node/"
   mv "$temporary/node" "$node_root"
