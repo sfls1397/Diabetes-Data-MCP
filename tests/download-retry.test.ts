@@ -74,6 +74,19 @@ describe("tconnectsync install.sh fetch()", () => {
     expect(calls(dir)).toHaveLength(2);
     expect(fs.readFileSync(path.join(dir, "w.whl"), "utf8")).toBe(BODY);
   });
+  it("recovers in one run from an oversize stale .tmp (curl exit 33) by deleting it", () => {
+    // curl -C - against a .tmp bigger than the real file exits 33 (range error) on every attempt unless the .tmp goes.
+    const dir = setup(
+      `while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n` +
+        `if [ -s "$out" ]; then exit 33; fi\nprintf 'wheel bytes\\n' > "$out"`
+    );
+    fs.writeFileSync(path.join(dir, "w.whl.tmp"), "stale bytes that are longer than the real wheel\n");
+    const result = run(dir);
+    expect(result.status).toBe(0);
+    expect(calls(dir)).toHaveLength(2);
+    expect(fs.readFileSync(path.join(dir, "w.whl"), "utf8")).toBe(BODY);
+    expect(fs.existsSync(path.join(dir, "w.whl.tmp"))).toBe(false);
+  });
   it("stops after the bounded attempts when the download never completes", () => {
     const dir = setup(flaky(99));
     const result = run(dir, { DIABETES_DOWNLOAD_ATTEMPTS: "2" });
