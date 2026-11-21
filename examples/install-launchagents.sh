@@ -1,18 +1,4 @@
 #!/bin/sh
-# Install or refresh Diabetes Data LaunchAgents for the current user:
-#   com.diabetes-mcp.server          read-only HTTP MCP (KeepAlive, preferred :8424)
-#   com.diabetes-sqlite.sync         Nightscout -> SQLite writer (every minute, StartInterval=60)
-#   com.diabetes-nightscout.mongod   MongoDB for Nightscout, 127.0.0.1:27017 only (KeepAlive)
-#   com.diabetes-nightscout.server   Nightscout on the home LAN, :8425 (KeepAlive)
-#   com.diabetes-tconnectsync.sync   Tandem Source -> Nightscout, hourly at :35
-# Usage: sh examples/install-launchagents.sh [/absolute/path/to/node] [server|sync|nightscout|tconnectsync|all]
-#   all = server + sync. nightscout = mongod + server; run nightscout/install-runtime.sh first.
-#   tconnectsync: run tconnectsync/install.sh first.
-# Secrets stay in Keychain; this script never reads or prints them.
-# Each plist launches its package script through /bin/sh (or node), never the script
-# itself: macOS Background Task Management keys an agent on its executable, so an
-# npm reinstall that rewrites the script would otherwise post another
-# "App Background Activity ... can run in the background" notice.
 set -eu
 DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
 REPO=$(CDPATH='' cd -- "$DIR/.." && pwd)
@@ -32,11 +18,6 @@ install_one() {
   plist="$HOME/Library/LaunchAgents/$label.plist"
   sed -e "s#REPLACE_NODE#$NODE#g" -e "s#REPLACE_REPO#$REPO#g" -e "s#REPLACE_HOME#$HOME#g" "$DIR/$label.plist" > "$plist.tmp"
   plutil -lint "$plist.tmp" >/dev/null
-  # Unchanged plist on a loaded job: keep the file as it is. Every bootstrap makes
-  # launchd rescan all LaunchAgents with macOS Background Task Management, so a
-  # reinstall should not reload a job whose plist is the same. Jobs that run at load
-  # or stay alive restart in place; a purely scheduled job (the hourly tconnectsync
-  # upload) picks up the new code on its next run and is not fired early.
   if [ -f "$plist" ] && cmp -s "$plist.tmp" "$plist" && launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
     rm -f "$plist.tmp"
     if [ "$(plutil -extract KeepAlive raw -o - "$plist" 2>/dev/null)" = true ] || [ "$(plutil -extract RunAtLoad raw -o - "$plist" 2>/dev/null)" = true ]; then
@@ -48,9 +29,6 @@ install_one() {
     return 0
   fi
   mv "$plist.tmp" "$plist"
-  # bootout returns before launchd has fully removed the job; bootstrapping too early fails
-  # with "5: Input/output error" and leaves the agent unloaded (this took mongod down once).
-  # Wait for the old job to disappear, then retry the bootstrap a few times.
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
   i=0
   while launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 && [ $i -lt 30 ]; do sleep 1; i=$((i + 1)); done

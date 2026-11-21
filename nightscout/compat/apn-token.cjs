@@ -1,7 +1,5 @@
 'use strict';
 
-// Nightscout only uses token-authenticated APNs. Avoid the certificate parser
-// and node-forge dependency while preserving its notification/result contract.
 const { ApnsClient, Notification: TokenNotification, Errors } = require('apns2');
 const fs = require('node:fs');
 const errorReasons = new Set(Object.values(Errors));
@@ -39,7 +37,6 @@ class Provider {
           await this.client.send(message);
           sent.push({ device });
         } catch (error) {
-          // Do not propagate keys, device tokens, request payloads or headers.
           failed.push({ response: { reason: errorReasons.has(error.reason) ? error.reason : 'APNs delivery failed' } });
         }
       }

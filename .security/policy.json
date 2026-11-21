@@ -8,8 +8,8 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "040b5a40b1b778c1aaa96e4e5d17a01d4edfa9275182980627527f99f739960e",
-      "line": 101,
+      "source_sha256": "59502820db6f6535b6a1390fe63e226c6eb0f714970601ce961a38580d121de7",
+      "line": 85,
       "column": 35
     },
     {
@@ -19,8 +19,8 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "040b5a40b1b778c1aaa96e4e5d17a01d4edfa9275182980627527f99f739960e",
-      "line": 249,
+      "source_sha256": "59502820db6f6535b6a1390fe63e226c6eb0f714970601ce961a38580d121de7",
+      "line": 225,
       "column": 12
     },
     {
@@ -30,8 +30,8 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "c56ccabc8c3edc86e245fe4247c6ad61bfc519f244e91eee76e2b0cd618ab6f7",
-      "line": 36,
+      "source_sha256": "c6d4d64d1d2dd89663e495b4728bdf17e5b26b0e34ba2ca83fbadea363f69d8f",
+      "line": 35,
       "column": 45
     },
     {
@@ -41,8 +41,8 @@
       "expires": "2027-10-11",
       "reason": "Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git.",
       "tracking": "FINDINGS.md#code-findings",
-      "source_sha256": "fbed275079b02c5f7867d93ea9c24af8478e0bf4d3d71a886da9a988535afae7",
-      "line": 22,
+      "source_sha256": "4559ab29f3b184fef8365ffc72e74a1a9cc6b26e29cfd270d5d86c4047f9aefa",
+      "line": 16,
       "column": 21
     }
   ]

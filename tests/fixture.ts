@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { openDatabaseForFixture, openDatabaseReadOnly, type DatabaseSync } from "../src/db/open.js";
 
-/** Same DDL as sync/sync_from_nightscout.py SCHEMA_SQL (box schema_version 1). */
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sgv (
@@ -28,12 +27,6 @@ CREATE INDEX IF NOT EXISTS idx_tx_created ON treatments(created_at);
 CREATE INDEX IF NOT EXISTS idx_tx_type ON treatments(event_type);
 `;
 
-/*
- * Three Chicago days around the 2025 fall-back (DST ends 2025-11-02 02:00 CDT = 07:00Z).
- * Local midnights are written out independently of src/time.ts:
- *   2025-11-01 00:00 CDT = 05:00Z, 2025-11-02 00:00 CDT = 05:00Z (25-hour day),
- *   2025-11-03 00:00 CST = 06:00Z, 2025-11-04 00:00 CST = 06:00Z.
- */
 export const START_MS = Date.parse("2025-11-01T05:00:00Z");
 export const FALLBACK_MS = Date.parse("2025-11-02T07:00:00Z");
 export const END_MS = Date.parse("2025-11-04T06:00:00Z");
@@ -43,7 +36,6 @@ export const DAY_MIDNIGHTS: Record<string, number> = {
   "2025-11-03": Date.parse("2025-11-03T06:00:00Z"),
   "2025-11-04": Date.parse("2025-11-04T06:00:00Z")
 };
-/** No readings 10:00–11:00 local on 2025-11-03 (a 65-minute gap between readings). */
 export const GAP_FROM_MS = Date.parse("2025-11-03T16:00:00Z");
 export const GAP_TO_MS = Date.parse("2025-11-03T17:00:00Z");
 
@@ -52,7 +44,6 @@ export function localHour(ms: number): number {
   return new Date(ms - offsetH * 3_600_000).getUTCHours();
 }
 
-/** 00–06 → 200 (high), 06–12 → 120, 12–18 → 70 (low), 18–24 → 150. */
 export function valueFor(ms: number): number {
   const h = localHour(ms);
   if (h < 6) return 200;
@@ -75,17 +66,11 @@ export function fixtureSgv(): SgvPoint[] {
   return out;
 }
 
-/** Entirely synthetic people, treatment events and numeric values for arithmetic tests. */
 export const FIXTURE_TREATMENTS = [
-  // 2025-11-01 02:00 CDT
   { id: "t1", created_at: "2025-11-01T07:00:00.000Z", event_type: "Temp Basal", rate: 0.8, duration_min: 60, entered_by: "tconnectsync" },
-  // 2025-11-01 09:00 CDT
   { id: "t2", created_at: "2025-11-01T14:00:00.000Z", event_type: "Site Change", entered_by: "Patient A", notes: "synthetic site change" },
-  // 2025-11-01 12:30 CDT
   { id: "t3", created_at: "2025-11-01T17:30:00.000Z", event_type: "Combo Bolus", insulin: 3, carbs: 45, entered_by: "tconnectsync", notes: "split 60/40" },
-  // 2025-11-03 09:00 CST, offset-form timestamp
   { id: "t4", created_at: "2025-11-03T09:00:00-06:00", event_type: "Meal Bolus", insulin: 2, carbs: 30, entered_by: "tconnectsync" },
-  // 2025-11-03 23:30 CST is already 2025-11-04 in UTC
   { id: "t5", created_at: "2025-11-04T05:30:00Z", event_type: "Correction Bolus", insulin: 1.5, entered_by: "tconnectsync" }
 ];
 

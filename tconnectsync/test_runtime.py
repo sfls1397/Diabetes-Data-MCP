@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Offline compatibility/security checks; never logs in or uploads pump data."""
 import importlib.util
 import json
 import logging
@@ -510,7 +509,6 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(window(None, now), now.shift(days=-28))
 
     def catch_up(self, argv, rows):
-        """Run catch_up_arguments against a fake Nightscout; return (argv, stderr, urls)."""
         from tconnectsync import secret
         urls = []
 
@@ -541,7 +539,6 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(result[-3].endswith(('-06:00', '-05:00')))
         self.assertAlmostEqual((arrow.get(result[-1]) - arrow.get(result[-3])).total_seconds(), 86400)
         self.assertEqual(output, '')
-        # The date filter keeps the lookup outside Nightscout's default ~96 h window.
         self.assertEqual(len(urls), 2)
         self.assertTrue(all('find[created_at][$gte]=' in url for url in urls))
         self.assertTrue(all('fixture-private-token' not in url for url in urls))
@@ -562,7 +559,6 @@ class RuntimeTests(unittest.TestCase):
         result, _, _ = self.catch_up(argv, {})
         self.assertLess(abs((arrow.get(result[-3]) - arrow.utcnow().shift(days=-28)).total_seconds()), 60)
 
-        # Without the flag (hand runs, recipes) the arguments pass through untouched.
         result, output, urls = self.catch_up(['fixture', '--days', '1'], {})
         self.assertEqual((result, output, urls), (['fixture', '--days', '1'], '', []))
 

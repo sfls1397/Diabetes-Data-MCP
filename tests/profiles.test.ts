@@ -9,26 +9,9 @@ import { openDatabaseForFixture, openDatabaseReadOnly, type DatabaseSync } from 
 import { callTool } from "../src/mcp/queries.js";
 import { wallInstants } from "../src/mcp/profiles.js";
 
-/*
- * Pump profile history end to end: a fake Nightscout serves synthetic profile
- * documents, the real sync mirrors them into a temp archive, and the MCP tools
- * read them back. Every number here is synthetic.
- *
- * Profiles (local America/Chicago schedules):
- *   Standard v1: basal 00:00 1.0, 06:00 2.0 U/h; carb ratio 00:00 10, 12:00 5 g/U
- *   Exercise:    basal 00:00 0.5, 01:30 1.0 U/h; carb ratio 00:00 20 g/U
- *   Standard v3: basal 00:00 1.0, 06:00 3.0 U/h (edited); carb ratio unchanged
- * Versions:
- *   p1 2025-10-01T00:00Z            Standard active
- *   p2 2025-11-01 12:30 CDT (17:30Z) switch to Exercise (mid-segment, mid-day)
- *   p3 2025-11-03 12:00 CST (18:00Z) switch back to Standard with the basal edit
- * 2025-11-02 is the 25-hour fall-back day: 01:00–02:00 happens twice, so the
- * Exercise 01:30 boundary is crossed twice that night.
- */
 const run = promisify(execFile);
 const SYNC = path.resolve(__dirname, "../sync/diabetes-sqlite-sync");
 const SECRET = "profile-test-secret-not-real";
-/** The exact SHA-1 header is checked in sync.test.ts; here it only has to be a hashed (never plaintext) secret. */
 const HASHED_HEADER = /^[0-9a-f]{40}$/;
 
 const seg = (time: string, value: number) => {
@@ -54,12 +37,10 @@ const STANDARD_V3 = named([["00:00", 1.0], ["06:00", 3.0]], [["00:00", 10], ["12
 
 const ALL_PROFILE_DOCS = [
   { _id: "p1", startDate: "2025-10-01T00:00:00.000Z", created_at: "2025-10-01T00:00:00.000Z", defaultProfile: "Standard", enteredBy: "Pump (tconnectsync)", store: { Standard: STANDARD_V1, Exercise: EXERCISE } },
-  // Python-style timestamp with microseconds and +00:00, as tconnectsync writes it
   { _id: "p2", startDate: "2025-11-01T17:30:00.000000+00:00", created_at: "2025-11-01T17:30:00.000000+00:00", defaultProfile: "Exercise", enteredBy: "Pump (tconnectsync)", store: { Standard: STANDARD_V1, Exercise: EXERCISE } },
   { _id: "p3", startDate: "2025-11-03T18:00:00.000Z", created_at: "2025-11-03T18:00:00.000Z", defaultProfile: "Standard", enteredBy: "Pump (tconnectsync)", store: { Standard: STANDARD_V3, Exercise: EXERCISE } }
 ];
 
-/** Delivered basal rows that tile 2025-11-01 00:00 CDT .. 2025-11-04 00:00 CST (UTC instants, U/h). */
 const BASAL_SPANS: [string, string, number, string][] = [
   ["2025-11-01T05:00:00Z", "2025-11-01T11:00:00Z", 1.0, "Profile"],
   ["2025-11-01T11:00:00Z", "2025-11-01T17:30:00Z", 2.0, "Profile"],
@@ -68,12 +49,12 @@ const BASAL_SPANS: [string, string, number, string][] = [
   ["2025-11-02T06:30:00Z", "2025-11-02T07:00:00Z", 1.0, "Profile"],
   ["2025-11-02T07:00:00Z", "2025-11-02T07:30:00Z", 0.5, "Profile"],
   ["2025-11-02T07:30:00Z", "2025-11-02T15:00:00Z", 1.0, "Profile"],
-  ["2025-11-02T15:00:00Z", "2025-11-02T16:00:00Z", 3.0, "Algorithm"], // +2.0 U over programmed
+  ["2025-11-02T15:00:00Z", "2025-11-02T16:00:00Z", 3.0, "Algorithm"],
   ["2025-11-02T16:00:00Z", "2025-11-03T06:00:00Z", 1.0, "Profile"],
   ["2025-11-03T06:00:00Z", "2025-11-03T07:30:00Z", 0.5, "Profile"],
   ["2025-11-03T07:30:00Z", "2025-11-03T18:00:00Z", 1.0, "Profile"],
   ["2025-11-03T18:00:00Z", "2025-11-03T20:00:00Z", 3.0, "Profile"],
-  ["2025-11-03T20:00:00Z", "2025-11-03T20:30:00Z", 0, "Suspended"], // -1.5 U
+  ["2025-11-03T20:00:00Z", "2025-11-03T20:30:00Z", 0, "Suspended"],
   ["2025-11-03T20:30:00Z", "2025-11-04T06:00:00Z", 3.0, "Profile"]
 ];
 const PROGRAMMED_BASAL = { "2025-11-01": 30.5, "2025-11-02": 24, "2025-11-03": 47.25 };
@@ -89,11 +70,8 @@ const TREATMENTS = [
     duration: (Date.parse(e) - Date.parse(s)) / 60_000,
     enteredBy: "Pump (tconnectsync)"
   })),
-  // 11:00 CDT, Standard v1, ratio 10 -> 3 U programmed
   { _id: "c1", created_at: "2025-11-01T16:00:00.000Z", eventType: "Combo Bolus", carbs: 30, insulin: 3, enteredBy: "Pump (tconnectsync)" },
-  // exactly when p2 starts: Exercise, ratio 20 -> 2 U programmed
   { _id: "c2", created_at: "2025-11-01T17:30:00.000Z", eventType: "Combo Bolus", carbs: 40, insulin: 2, enteredBy: "Pump (tconnectsync)" },
-  // 13:00 CST, Standard v3, ratio 5 -> 5 U programmed
   { _id: "c3", created_at: "2025-11-03T19:00:00.000Z", eventType: "Combo Bolus", carbs: 25, insulin: 6, enteredBy: "Pump (tconnectsync)" },
   { _id: "x1", created_at: "2025-11-02T18:00:00.000Z", eventType: "Correction Bolus", insulin: 1, enteredBy: "Pump (tconnectsync)" }
 ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
@@ -126,7 +104,6 @@ beforeAll(async () => {
         res.end(JSON.stringify({ status: profileStatus, message: `failed at ${baseUrl}` }));
         return;
       }
-      // Nightscout sorts {startDate: -1, _id: -1}
       body = [...profileDocs]
         .sort((a, b) => (a.startDate === b.startDate ? (a._id < b._id ? 1 : -1) : Date.parse(b.startDate) - Date.parse(a.startDate)))
         .slice(0, count);
@@ -183,7 +160,7 @@ function tool(db: DatabaseSync, dbPath: string, name: string, args: Record<strin
 }
 
 describe("profile sync (fake Nightscout -> SQLite)", () => {
-  it("mirrors every profile document with its named profiles and segments, idempotently", async () => {
+  it("mirrors every profile document with its named profiles and segments, idempotently: unchanged documents are never rewritten", async () => {
     profileDocs = [...ALL_PROFILE_DOCS];
     profileStatus = 200;
     const dbPath = tempDb();
@@ -223,11 +200,10 @@ describe("profile sync (fake Nightscout -> SQLite)", () => {
     expect(second.stdout).toMatch(/profile versions: 3 read \(recent\), 0 changed/);
     const backfill = await run(SYNC, ["backfill"], opts(dbPath));
     expect(backfill.stdout).toMatch(/profile versions: 3 read \(full\), 0 changed, 0 marked deleted upstream/);
-    // Same rows, same first_seen_at / updated_at: unchanged documents are never rewritten.
     expect(dump(dbPath)).toBe(before);
   }, 60_000);
 
-  it("reads only the newest documents on a routine run; backfill restores history and flags upstream deletions", async () => {
+  it("reads only the newest documents on a routine run; backfill restores history and flags upstream deletions, keeping the deleted document in the archive and ignoring it in the tools", async () => {
     profileDocs = [...ALL_PROFILE_DOCS];
     profileStatus = 200;
     const dbPath = tempDb();
@@ -245,7 +221,6 @@ describe("profile sync (fake Nightscout -> SQLite)", () => {
     const full = await run(SYNC, ["backfill"], opts(dbPath, recent));
     expect(full.stdout).toMatch(/profile versions: 3 read \(full\), 1 changed, 0 marked deleted upstream, 0 skipped; total=3/);
 
-    // p2 deleted in Nightscout: kept in the archive, flagged, and ignored by the tools.
     profileDocs = ALL_PROFILE_DOCS.filter((d) => d._id !== "p2");
     const gone = await run(SYNC, ["profiles"], opts(dbPath));
     expect(gone.stdout).toMatch(/2 read \(full\), 0 changed, 1 marked deleted upstream, 0 skipped; total=2/);
@@ -347,7 +322,7 @@ describe("profile tools", () => {
     expect(call("get_active_profile", { include_all_profiles: true }).other_profiles[0]).toMatchObject({ name: "Exercise", scheduled_basal_u_per_day: 23.25 });
   });
 
-  it("get_profile_as_of picks the version in force, including a switch mid-segment", () => {
+  it("get_profile_as_of picks the version in force, including a switch mid-segment and the first instant of a repeated fall-back time", () => {
     const before = call("get_profile_as_of", { at: "2025-11-01 12:29" });
     expect(before).toMatchObject({ found: true, version: { id: "p1", active_profile: "Standard" } });
     expect(before.in_force_at_time).toMatchObject({ local_time: "12:29", basal: { value: 2, segment: "06:00-24:00" }, carb_ratio: { value: 5, segment: "12:00-24:00" } });
@@ -363,7 +338,6 @@ describe("profile tools", () => {
     expect(day.version.id).toBe("p2");
     expect(day.changes_that_day).toEqual([{ ts: "2025-11-03T18:00:00.000Z", local: "2025-11-03T12:00:00-06:00", id: "p3", active_profile: "Standard" }]);
 
-    // Repeated fall-back hour: the first 01:45 (CDT) is meant.
     const ambiguous = call("get_profile_as_of", { at: "2025-11-02 01:45" });
     expect(ambiguous.at.ts).toBe("2025-11-02T06:45:00.000Z");
     expect(ambiguous.in_force_at_time.basal.value).toBe(1);
@@ -410,7 +384,6 @@ describe("profile tools", () => {
       ["2025-11-03", PROGRAMMED_BASAL["2025-11-03"], 24]
     ]);
     const exercise = r.basal.by_segment.find((b: any) => b.profile === "Exercise" && b.segment === "01:30-24:00");
-    // 11-01 12:30–24:00 (11.5 h) + 11-02 01:30 CDT–02:00 and 01:30 CST–24:00 (0.5 + 22.5 h) + 11-03 01:30–12:00 (10.5 h)
     expect(exercise).toMatchObject({ programmed_u_per_h: 1, hours: 45, programmed_u: 45, delivered_u: 47 });
     expect(r.carbs).toMatchObject({
       carb_entries: 3,
@@ -429,10 +402,9 @@ describe("profile tools", () => {
   });
 
   it("reports hours before the first profile version instead of extrapolating", () => {
-    // p1 starts 2025-10-01T00:00Z = 2025-09-30 19:00 CDT
     const r = call("get_settings_vs_delivery", { date_from: "2025-09-30" });
     expect(r.profile_coverage).toMatchObject({ hours_with_profile: 5, hours_without_profile: 19 });
-    expect(r.basal.programmed_u).toBe(10); // Standard 06:00 segment, 2 U/h × 5 h
+    expect(r.basal.programmed_u).toBe(10);
     expect(r.profile_coverage.note).toMatch(/nothing is extrapolated/);
     expect(call("get_settings_vs_delivery", { date_from: "2025-01-01", date_to: "2026-12-31" }).error).toMatch(/limit for this tool is 366/);
   });

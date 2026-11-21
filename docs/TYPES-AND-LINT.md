@@ -1,6 +1,6 @@
 # Types and strict lint
 
-Build steps 3 and 4 of the development process plan (D16, D19), copied from the Toolbox's `docs/TYPES-AND-LINT.md` and its `.security/lint.py`, and from the same step in ResMed-Data-MCP, SimpleFIN-Data-MCP and Alexa-Echo-MCP. Whole kinds of mistakes fail in seconds, before any test runs, and no new code comment lands. Lauren Tan: "lint rules, type systems, compilers" come first, and "start with a lint rule to prevent new occurrences of anti-patterns and then clean up those old patterns as well". Comments "go stale easily", so they are banned by a lint rule. This change is the rule only; cleaning the comments that exist today is the next job.
+Build steps 3 and 4 of the development process plan (D16, D19), copied from the Toolbox's `docs/TYPES-AND-LINT.md` and its `.security/lint.py`, and from the same step in ResMed-Data-MCP, SimpleFIN-Data-MCP and Alexa-Echo-MCP. Whole kinds of mistakes fail in seconds, before any test runs, and no new code comment lands. Lauren Tan: "lint rules, type systems, compilers" come first, and "start with a lint rule to prevent new occurrences of anti-patterns and then clean up those old patterns as well". Comments "go stale easily", so they are banned by a lint rule. The comments that existed when the rule landed are all cleaned out ([below](#comments-cleaned-out)).
 
 ## What runs
 
@@ -23,7 +23,7 @@ Install or update the tools with `bash .cursor/install-lint.sh`. They live in `~
 
 ## The ratchet
 
-Each finding is keyed by its tool, rule, file and a hash of its line's text, so moving code does not change it. `.lint/baseline.json` holds today's 608 findings: 605 comment lines, one TypeScript type error, one Pyright finding and one suppression comment ([below](#findings-held-from-today-s-code)). It only shrinks:
+Each finding is keyed by its tool, rule, file and a hash of its line's text, so moving code does not change it. `.lint/baseline.json` holds no findings: the 608 it held at the start (605 comment lines, one TypeScript type error, one Pyright finding and one suppression comment) are all fixed ([below](#comments-cleaned-out)). It only shrinks, so it stays empty:
 
 - A change fails on a finding absent from both the baseline and the PR base, including indirect breakage in untouched files. Editing a finding's line changes its key. A renamed file keeps its old findings.
 - A finding already on the PR base is a warning, even in a touched file: a merge resolution must not be blamed for main's existing finding. Counts matter: one existing occurrence does not excuse a second.
@@ -46,13 +46,7 @@ Measured on main at 8dad034 with each tool first run at its widest setting, then
 | Imports | no rule widened | 0 |
 | Suppressions | one | 1 |
 | Comments | not run before | 605 |
-| **All** | | **608** |
-
-## Findings held from today's code
-
-- `tests/env-secrets.test.ts:84` (tsc TS2345): a test passes `{} | { API_SECRET: "" }` where `Record<string, string>` is expected. The type error is real; Vitest does not check types, so nobody saw it. Fix it in cleanup part 4.
-- `tests/test_diagnostics.py:76` (Pyright, module attribute): the test calls `unittest.mock` and only has `from unittest.mock import patch`. It runs, but the file never imports the submodule by name. Change it to `import unittest.mock` in cleanup part 4.
-- `sync/sync_from_nightscout.py:726` (suppression): a `# type: ignore[arg-type]` on a `float(value)` call. It goes with that line's comment in cleanup part 2.
+| **All** | | **608** (0 after the comment cleanup) |
 
 ## Rules dropped, and why
 
@@ -64,7 +58,7 @@ False alarms must be zero, so a check that flags correct code is tuned or droppe
 
 **Ruff** (2,879 with every rule): the Toolbox's selection is kept as is, with no hit in today's code. Dropped because they flag correct code: quotes (1,511), `unittest` assertion style (203), annotations, docstrings, `print` (60), exception message style, bandit's `S` rules (Semgrep owns security), `B023` (20, closures defined in a test loop and used inside the same iteration), `PLW1510` (27, every `subprocess.run` here checks the exit code itself), `RUF005`, `EXE001` (scripts run as `python3 file`), `RUF100` (3 unused `# noqa: E402`, and the comment ban owns that comment), `PLW2901`, `DTZ007` and `DTZ011` (4 and 1: `strptime(...).date()` reads a calendar date, no clock is involved), and the refactor and convention families.
 
-**Pyright** (112 in standard mode, 1,466 in strict mode). Off: `reportMissingImports` (48) and `reportMissingModuleSource` (8), since the upstream tconnectsync packages are installed only in the separate tconnect runtime and sibling scripts are loaded by path; `reportOptionalMemberAccess` (21) and `reportArgumentType` (10), all `spec.loader.exec_module` after `spec_from_file_location` and similar; `reportFunctionMemberAccess` (2, the `_diabetes_combo` and `__wrapped__` marks set on a function on purpose); `reportReturnType` (1, `load_nightscout_auth` returns a secret that the `missing` list above it proved is set); `reportAssignmentType` (1, `warn = warning` inside a `LoggerAdapter` subclass). Also off, with only two hits when on (both in `lint.py` itself, both correct code): `reportOptionalSubscript`, `reportOptionalOperand`, `reportOptionalIterable`, `reportOptionalCall`, `reportOptionalContextManager` and `reportPossiblyUnboundVariable` (flow the checker cannot follow), `reportIndexIssue` and `reportOperatorIssue` (a mixed dict literal is guessed as a union), `reportIncompatibleMethodOverride` and `reportIncompatibleVariableOverride` (a `*args` override), `reportUnusedExpression` (a statement that checks keys exist) and `reportInvalidStringEscapeSequence` (Ruff's `W605` owns it). The remaining family is kept only in part, as the Toolbox does: module attribute errors, wrong call arguments and Python 3.10 features. Of its 21 hits, 8 are `tconnectsync.parse_args` and `tconnectsync.secret`: this repository's `tconnectsync/` folder shadows the upstream package, which the checker cannot see, so any attribute of module `tconnectsync` is skipped (`PYRIGHT_UNREAD_MODULES` in `lint.py`). The 12 other hits are `unknown import symbol` and `Cannot assign` messages the filter already drops, and one is held ([above](#findings-held-from-today-s-code)). Strict mode reports over a thousand unknown types because the code has no annotations. Pyright skips folders that start with a dot, which hides `.security`, so `lint.py` reads those files through a copy with the dot renamed and fails if Pyright analyzes fewer files than it was given.
+**Pyright** (112 in standard mode, 1,466 in strict mode). Off: `reportMissingImports` (48) and `reportMissingModuleSource` (8), since the upstream tconnectsync packages are installed only in the separate tconnect runtime and sibling scripts are loaded by path; `reportOptionalMemberAccess` (21) and `reportArgumentType` (10), all `spec.loader.exec_module` after `spec_from_file_location` and similar; `reportFunctionMemberAccess` (2, the `_diabetes_combo` and `__wrapped__` marks set on a function on purpose); `reportReturnType` (1, `load_nightscout_auth` returns a secret that the `missing` list above it proved is set); `reportAssignmentType` (1, `warn = warning` inside a `LoggerAdapter` subclass). Also off, with only two hits when on (both in `lint.py` itself, both correct code): `reportOptionalSubscript`, `reportOptionalOperand`, `reportOptionalIterable`, `reportOptionalCall`, `reportOptionalContextManager` and `reportPossiblyUnboundVariable` (flow the checker cannot follow), `reportIndexIssue` and `reportOperatorIssue` (a mixed dict literal is guessed as a union), `reportIncompatibleMethodOverride` and `reportIncompatibleVariableOverride` (a `*args` override), `reportUnusedExpression` (a statement that checks keys exist) and `reportInvalidStringEscapeSequence` (Ruff's `W605` owns it). The remaining family is kept only in part, as the Toolbox does: module attribute errors, wrong call arguments and Python 3.10 features. Of its 21 hits, 8 are `tconnectsync.parse_args` and `tconnectsync.secret`: this repository's `tconnectsync/` folder shadows the upstream package, which the checker cannot see, so any attribute of module `tconnectsync` is skipped (`PYRIGHT_UNREAD_MODULES` in `lint.py`). The 12 other hits are `unknown import symbol` and `Cannot assign` messages the filter already drops, and one was held and is now fixed ([below](#comments-cleaned-out)). Strict mode reports over a thousand unknown types because the code has no annotations. Pyright skips folders that start with a dot, which hides `.security`, so `lint.py` reads those files through a copy with the dot renamed and fails if Pyright analyzes fewer files than it was given.
 
 ## The comment ban
 
@@ -79,39 +73,22 @@ False alarms must be zero, so a check that flags correct code is tuned or droppe
 - Comments a tool needs in order to work: Python's encoding line, ShellCheck's `shell=`, `source=` and `source-path=` directives, TypeScript's `/// <reference ... />` and `// @ts-check`, and Vitest's `@vitest-environment` docblock. Nothing that turns a checker off qualifies: those are the suppression check's findings, counted once.
 - A Python docstring the program reads: a module docstring in a file that uses `__doc__`, and a function or class docstring read as `name.__doc__` (`.security/lint.py` prints its own).
 
-## Comments in today's code
+## Comments cleaned out
 
-Measured on main at 8dad034 with this check: 605 comment lines in 59 files (TypeScript 254, Python 236 of which 158 are docstring lines, shell 99, JavaScript 16). This step sorts nothing by kind (Peter citation, lesson reason, history); the cleanup job does that as it reads each comment. `python3 .security/lint.py counts --folders` prints this table.
+Measured on main at 5d70833: 605 comment lines in 59 files (TypeScript 254, Python 236 of which 158 are docstring lines, shell 99, JavaScript 16). All of them are gone, in one change, and `.lint/baseline.json` holds no entries. No shebang, license text, upstream link or tool directive was among them, and no comment named Peter or a lesson ID.
 
-| Folder | Files | Lines |
-|---|---|---|
-| `sync` | 3 | 109 |
-| `tests` | 11 | 109 |
-| `tconnectsync` | 8 | 98 |
-| `src/mcp` | 6 | 84 |
-| `.security` | 7 | 53 |
-| `nightscout` | 8 | 43 |
-| `src` (top level) | 5 | 40 |
-| `examples` | 1 | 22 |
-| `src/db` | 1 | 22 |
-| `scripts` | 4 | 16 |
-| `.cursor` | 3 | 5 |
-| `.githooks` | 2 | 4 |
-| **All** | **59** | **605** |
+No comment was deleted until its "why" lived where it belongs (D19):
 
-The most: `sync/sync_from_nightscout.py` 104, `tconnectsync/diabetes_tconnectsync.py` 32, `src/mcp/profiles.ts` 31, `tests/profiles.test.ts` 31, `tconnectsync/combo_bolus.py` 31, `src/mcp/queries.ts` 26, `src/time.ts` 23, `examples/install-launchagents.sh` 22.
+| Kind | Where its reason went |
+|---|---|
+| A reason the code cannot show (why a call is shaped as it is, a failure that happened once) | [DESIGN-REASONS.md](DESIGN-REASONS.md), by file or function, and the name of the test that guards it |
+| A guarded behavior | The test's title now holds the reason (the Nightscout installer, the profile mirror, the sync backfill, the persistent database setting) |
+| History (a PR, a date, an incident) | Git holds it; the one that explains a guard (the history scans never read `--all`) is in DESIGN-REASONS.md and its probe `test_history_ignores_another_jobs_scratch_worktree` |
+| Narration, dividers, a docstring nothing reads | Deleted |
 
-## The cleanup plan
+The three non comment findings the baseline held were fixed in the same change: `tests/env-secrets.test.ts` now types its two environment cases as `Record<string, string>[]`, `tests/test_diagnostics.py` imports `MagicMock` by name, and the `# type: ignore[arg-type]` on `float(value)` in `sync/sync_from_nightscout.py` is gone (Pyright's `reportArgumentType` is off here, see above).
 
-No comment is deleted until its "why" lives where it belongs (D19): a better name, a test named for the failure it prevents, or the doc or commit message that owns it. One job per part, on a mid tier model, each part after the one before merges. Run `python3 .security/lint.py prune --resolved-only` after each part so the baseline loses only what is resolved, and prove no behavior changed with identical syntax trees (compare the parsed trees of each changed file before and after, ignoring comments) plus the recorded gate.
-
-| Part | Files | Lines | Why this order |
-|---|---|---|---|
-| 1 | `src`, `scripts`, `examples`, `.githooks`, `.cursor` | 193 | The TypeScript product code and small shell files first, so the method is proven on the code with the most tests |
-| 2 | `sync` | 109 | One Python file holds 104 of them; it also carries the held `# type: ignore` |
-| 3 | `tconnectsync`, `nightscout` | 141 | The two wrappers around upstream runtimes, kept together; shell and CommonJS are read by shfmt and typescript-estree |
-| 4 | `tests` | 109 | After the code, so a reason moved into a test name is there; also fixes the two held test findings |
-| 5 | `.security` | 53 | The gate's own code last, kept apart so its review stays small |
+No behavior changed: the syntax tree of every changed file (TypeScript with typescript-estree, Python with `ast`, shell with `shfmt -mn`) is identical with comments and docstrings dropped and test titles blanked, apart from the two typing edits above.
 
 ## Changing a pin or a rule
 

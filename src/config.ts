@@ -60,11 +60,6 @@ export interface ResolvedConfig {
   configPath: string;
 }
 
-/**
- * Precedence (highest wins): env var > config.json > product default.
- * Default HTTP port is 8424 (ResMed 8420, Apple Tools HTTP 8421, Network Tools 8422, SimpleFIN 8423).
- * That value is the preferred starting port. `serve` binds the next free port above it when it is taken.
- */
 export function resolveConfig(
   options: { env?: NodeJS.ProcessEnv; warn?: (msg: string) => void } = {}
 ): ResolvedConfig {

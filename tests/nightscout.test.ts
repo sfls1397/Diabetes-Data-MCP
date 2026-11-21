@@ -5,12 +5,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-/*
- * Guards for the Mini-hosted Nightscout pieces (nightscout/ + the two
- * com.diabetes-nightscout.* LaunchAgents). Mongo must stay on loopback, no
- * secret may live in a plist, and the wrapper must refuse a non-loopback
- * MONGODB_URI before it touches Keychain.
- */
 const run = promisify(execFile);
 const ROOT = path.resolve(__dirname, "..");
 const read = (p: string) => fs.readFileSync(path.join(ROOT, p), "utf8");
@@ -34,7 +28,6 @@ describe("nightscout LaunchAgents", () => {
 
   it("keeps secrets out of plists and the config example", () => {
     for (const f of [MONGOD, SERVER, "nightscout/config.env.example"]) {
-      // A value would appear as a plist env key or a KEY= line; comments may name them.
       expect(read(f)).not.toMatch(/<key>(API_SECRET|BRIDGE_PASSWORD|BRIDGE_USER_NAME)<\/key>/);
       expect(read(f)).not.toMatch(/^\s*#?\s*(API_SECRET|BRIDGE_PASSWORD|BRIDGE_USER_NAME)=/m);
     }
@@ -86,15 +79,7 @@ describe("tconnectsync LaunchAgent", () => {
   });
 });
 
-/*
- * macOS Background Task Management (BTM) keys each LaunchAgent on the code
- * identity of ProgramArguments[0]. When that file is rewritten (every npm
- * reinstall rewrites the package), BTM records a new item and posts another
- * "App Background Activity: ... can run in the background" notice. A stable
- * system executable (/bin/sh, node) with the package script as an argument keeps
- * the same identity across reinstalls, so no notice.
- */
-describe("LaunchAgent executables stay stable across reinstalls", () => {
+describe("LaunchAgent executables stay stable across reinstalls, so macOS Background Task Management keys each agent on /bin/sh or node and a rewritten package script posts no new App Background Activity notice", () => {
   const plists = fs.readdirSync(path.join(ROOT, "examples")).filter((f) => f.endsWith(".plist"));
 
   it("never launches a file from the package or repo directly", () => {
@@ -107,7 +92,6 @@ describe("LaunchAgent executables stay stable across reinstalls", () => {
   });
 });
 
-// The installer is macOS-only (plutil, launchctl); the reinstall tests need the real plutil.
 const HAS_PLUTIL = fs.existsSync("/usr/bin/plutil");
 
 describe("install-launchagents.sh", () => {
@@ -122,7 +106,6 @@ describe("install-launchagents.sh", () => {
     fs.mkdirSync(state);
     fs.mkdirSync(path.join(home, ".diabetes-data/nightscout/runtime/mongodb/bin"), { recursive: true });
     fs.writeFileSync(path.join(home, ".diabetes-data/nightscout/runtime/mongodb/bin/mongod"), "#!/bin/sh\n", { mode: 0o755 });
-    // A stand-in launchctl: records every call, keeps "loaded" state as files.
     fs.writeFileSync(
       path.join(bin, "launchctl"),
       [
@@ -150,13 +133,13 @@ describe("install-launchagents.sh", () => {
     return fs.readFileSync(e.log, "utf8").trim().split("\n").filter(Boolean);
   }
 
-  it("waits for the old job to unload and retries bootstrap (no I/O-error race)", () => {
+  it("waits for the old job to unload and retries bootstrap, since bootout returns before launchd removes the job and an early bootstrap fails with 5: Input/output error and leaves the agent unloaded (no I/O-error race)", () => {
     const sh = read("examples/install-launchagents.sh");
     expect(sh).toMatch(/while launchctl print "gui\/\$\(id -u\)\/\$label"/);
     expect(sh).toMatch(/until launchctl bootstrap/);
   });
 
-  it.skipIf(!HAS_PLUTIL)("leaves an unchanged plist byte-identical and untouched on reinstall, restarting in place", async () => {
+  it.skipIf(!HAS_PLUTIL)("leaves an unchanged plist byte-identical and untouched on reinstall, restarting in place with no bootout or bootstrap, because every bootstrap makes launchd rescan every agent with Background Task Management", async () => {
     const e = fakeMini();
     const plist = path.join(e.home, "Library/LaunchAgents/com.diabetes-nightscout.server.plist");
     const first = await install(e, process.execPath, "nightscout");
@@ -171,7 +154,6 @@ describe("install-launchagents.sh", () => {
     expect(fs.readFileSync(plist, "utf8")).toBe(xml);
     expect(after.ino).toBe(before.ino);
     expect(after.mtimeMs).toBe(before.mtimeMs);
-    // No bootout/bootstrap: each bootstrap makes launchd rescan every agent with BTM.
     expect(second.some((l) => /^(bootout|bootstrap)/.test(l))).toBe(false);
     expect(second).toContain(`kickstart -k gui/${process.getuid?.()}/com.diabetes-nightscout.server`);
     expect(second).toContain(`kickstart -k gui/${process.getuid?.()}/com.diabetes-nightscout.mongod`);

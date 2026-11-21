@@ -4,12 +4,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-/*
- * tconnectsync/combo_bolus.py is pure Python (duck-typed on event NAME), so it is tested
- * with fake pump events and stock-shaped Nightscout entries. No tconnectsync install needed.
- * The 5.64 U / 5.73 U cases are real combos whose correct Nightscout shape was verified
- * against the live treatments on 2026-10-03.
- */
 const run = promisify(execFile);
 const DIR = path.resolve(__dirname, "../tconnectsync");
 

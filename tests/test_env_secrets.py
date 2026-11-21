@@ -1,4 +1,3 @@
-"""Environment first, Keychain second, for the Nightscout -> SQLite sync (fake values only)."""
 import os
 from pathlib import Path
 import sys

@@ -1,5 +1,3 @@
-// Environment first, Keychain second (infisical-run puts each secret in the
-// program environment). Fake values only; the Keychain is a PATH stub.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -15,7 +13,6 @@ const NAMES = ["API_SECRET", "BRIDGE_USER_NAME", "BRIDGE_PASSWORD", "TCONNECT_EM
 let dir: string;
 let log: string;
 
-/** A fake `security`: prints keychain-<service>/<account> unless that pair is listed as empty. */
 function fakeKeychain(empty: string[] = []) {
   fs.writeFileSync(path.join(dir, "security"), `#!/bin/sh
 s=; a=
@@ -27,7 +24,6 @@ printf 'keychain-%s/%s\\n' "$s" "$a"
   fs.chmodSync(path.join(dir, "security"), 0o700);
 }
 
-/** A probe program that prints each secret name the loader exported. */
 function probe(file: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `#!/bin/sh\nfor n in ${NAMES.join(" ")}; do eval "v=\\\${$n-UNSET}"; printf '%s=%s\\n' "$n" "$v"; done\n`);
@@ -80,7 +76,8 @@ describe("nightscout/diabetes-nightscout-server", () => {
 
   it("reads the Keychain as today when API_SECRET is unset or empty", () => {
     fakeKeychain();
-    for (const extra of [{}, { API_SECRET: "" }]) {
+    const unsetOrEmpty: Record<string, string>[] = [{}, { API_SECRET: "" }];
+    for (const extra of unsetOrEmpty) {
       const result = run(extra);
       expect(result.status).toBe(0);
       expect(parse(result.stdout).API_SECRET).toBe("keychain-diabetes-sqlite/api-secret");

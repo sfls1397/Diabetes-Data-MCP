@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Security regression probes use only disposable repositories and synthetic data."""
 import importlib.util
 import os
 from pathlib import Path
@@ -23,8 +22,6 @@ merge = module('verified_merge', 'merge-pr.py')
 
 
 def scratch_worktree_repo(temp):
-    """A repo whose main commit is clean, plus another job's leftovers sharing its refs: a debug worktree on a detached
-    commit and a local branch, both authored on example.invalid. Returns (root, clean main sha, debug sha)."""
     root = temp / 'repo'
     (root / '.githooks').mkdir(parents=True)
     (root / '.security').mkdir()
@@ -73,8 +70,6 @@ class Standard(unittest.TestCase):
                 os.chdir(previous)
 
     def test_history_ignores_another_jobs_scratch_worktree(self):
-        # Toolbox PR 554 (Nov 12): a debug worktree's commit (author on example.invalid) failed a push and a gate,
-        # because the scan read rev-list --all, which takes in every branch and every linked worktree's HEAD.
         with tempfile.TemporaryDirectory() as temp:
             root, pushed, foreign = scratch_worktree_repo(Path(temp))
             gate = Path(__file__).with_name('metadata.py')
@@ -83,11 +78,9 @@ class Standard(unittest.TestCase):
             self.assertIn('Git history metadata PASS', clean.stdout)
             tip = subprocess.run([sys.executable, str(gate), 'history', pushed], cwd=root, capture_output=True, text=True)
             self.assertEqual(tip.returncode, 0, tip.stdout + tip.stderr)
-            # The same commit still blocks when it is the one being checked.
             bad = subprocess.run([sys.executable, str(gate), 'history', foreign], cwd=root, capture_output=True, text=True)
             self.assertEqual(bad.returncode, 1)
             self.assertIn('Git metadata BLOCKED: ' + foreign[:12], bad.stdout)
-            # An option can never come in as a revision.
             option = subprocess.run([sys.executable, str(gate), 'history', '--all'], cwd=root, capture_output=True, text=True)
             self.assertEqual(option.returncode, 1)
 
@@ -120,7 +113,6 @@ class Standard(unittest.TestCase):
                             'refs/heads/dbg %s refs/heads/dbg %s\n' % (foreign, zero)])
             self.assertEqual(blocked.returncode, 1)
             self.assertIn('Git metadata BLOCKED: ' + foreign[:12], blocked.stdout)
-            # A delete pushes no commits, so neither history scan runs; the file scan still does.
             deleted = push(['(delete) %s refs/heads/old %s\n' % (zero, pushed)])
             self.assertEqual(deleted.returncode, 0, deleted.stdout + deleted.stderr)
             self.assertEqual(len((temp / 'gitleaks.log').read_text().splitlines()), 1)

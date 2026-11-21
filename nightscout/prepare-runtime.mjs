@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Apply the reviewed runtime profile only to the exact upstream source.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,8 +25,6 @@ const changes = {
   ],
   'lib/server/loop.js': ["require('@parse/node-apn')", "require('./apn-token')"],
   'tests/loop-server.test.js': ["require('@parse/node-apn')", "require('../lib/server/apn-token')"],
-  // jsdom delegates base64 to Node globals. Mirroring its wrapper back onto
-  // those globals recurses; retain Node's browser-compatible buffer functions.
   'tests/fixtures/benv-shim.js': [
     'setGlobal(name, activeEnv.window[name] || function noop () {});',
     "setGlobal(name, name === 'btoa' ? require('node:buffer').btoa : name === 'atob' ? require('node:buffer').atob : activeEnv.window[name] || function noop () {});"

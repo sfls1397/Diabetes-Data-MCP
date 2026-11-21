@@ -89,11 +89,6 @@ function boundPort(server: http.Server): number {
   return address.port;
 }
 
-/**
- * Bind `preferredPort`, or the next free port above it when that port is
- * already taken. Port 0 keeps Node's ephemeral bind (tests only; product
- * config never uses 0).
- */
 export async function bindPreferredPort(server: http.Server, host: string, preferredPort: number): Promise<number> {
   if (preferredPort === 0) {
     await listenOnce(server, host, 0);
@@ -113,14 +108,6 @@ export async function bindPreferredPort(server: http.Server, host: string, prefe
   throw new Error(`No free TCP port from ${preferredPort} through ${MAX_TCP_PORT} on ${host}`);
 }
 
-/**
- * Stateless Streamable HTTP (a fresh Server + transport per request, as the
- * SDK's stateless example requires), bearer token on every request including
- * /health. Same shape as Network-Tools.
- *
- * `opts.port` is the preferred starting port (default 8424). If it is in use,
- * the server binds the next free port above it and logs the URL it actually bound.
- */
 export async function startHttpServer(opts: StartHttpOptions): Promise<http.Server> {
   const log = opts.log || ((message: string) => console.error(message));
   const httpServer = http.createServer((req, res) => {

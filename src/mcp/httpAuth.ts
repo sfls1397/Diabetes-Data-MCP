@@ -1,16 +1,9 @@
-/**
- * Shared-secret auth for the HTTP transport, same scheme as Network-Tools
- * (and Apple Tools): a random bearer token generated once and kept in the
- * macOS Keychain — never in a config file, the repo, or logs after the
- * one-time print.
- */
 import crypto from "node:crypto";
 import { writeKeychainSecret } from "../keychainWrite.js";
 import { execFileSync as defaultExecFileSync } from "node:child_process";
 
 export const KEYCHAIN_SERVICE = "diabetes-data-mcp-http";
 export const KEYCHAIN_ACCOUNT = "http-auth-token";
-/** Set and non empty (infisical-run injects it), this wins over the Keychain. */
 export const TOKEN_ENV = "DIABETES_DATA_MCP_TOKEN";
 
 type Exec = typeof defaultExecFileSync;
@@ -52,7 +45,6 @@ export function loadOrCreateHttpAuthToken(
   return { token, generated: true };
 }
 
-/** Constant-time check of `Authorization: Bearer <token>`. Never throws. */
 export function verifyAuthHeader(headerValue: string | string[] | undefined, expectedToken: string): boolean {
   if (typeof headerValue !== "string") return false;
   const match = /^Bearer\s+(.+)$/i.exec(headerValue.trim());

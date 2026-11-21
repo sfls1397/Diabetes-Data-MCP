@@ -1,11 +1,3 @@
-/**
- * America/Chicago calendar math without a tz library.
- *
- * Every date and HH:MM a tool accepts is Chicago local. The archive stores
- * UTC epoch ms (sgv.date_ms) and ISO UTC strings (treatments.created_at), so
- * tools convert local days to UTC ms windows here. DST changes happen on the
- * hour, so caching the UTC offset per UTC hour is exact.
- */
 export const TIMEZONE = "America/Chicago";
 
 const HOUR_MS = 3_600_000;
@@ -26,7 +18,6 @@ const formatter = new Intl.DateTimeFormat("en-US", {
 
 const offsetCache = new Map<number, number>();
 
-/** Chicago offset from UTC in ms at `ms` (e.g. -5h during CDT). */
 export function offsetMs(ms: number): number {
   const hourKey = Math.floor(ms / HOUR_MS);
   const cached = offsetCache.get(hourKey);
@@ -43,11 +34,8 @@ export function offsetMs(ms: number): number {
 }
 
 export interface LocalParts {
-  /** YYYY-MM-DD Chicago */
   ymd: string;
-  /** minutes since local midnight, 0..1439 */
   minuteOfDay: number;
-  /** 0 = Sunday … 6 = Saturday */
   weekday: number;
 }
 
@@ -57,12 +45,10 @@ export function localParts(ms: number): LocalParts {
   return {
     ymd: new Date(dayIndex * DAY_MS).toISOString().slice(0, 10),
     minuteOfDay: Math.floor((local - dayIndex * DAY_MS) / 60_000),
-    // 1970-01-01 was a Thursday.
     weekday: (((dayIndex + 4) % 7) + 7) % 7
   };
 }
 
-/** `2026-09-30T05:00:00-05:00` */
 export function localIso(ms: number): string {
   const offset = offsetMs(ms);
   const local = new Date(ms + offset).toISOString().slice(0, 19);
@@ -86,7 +72,6 @@ export function addDays(ymd: string, days: number): string {
   return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days)).toISOString().slice(0, 10);
 }
 
-/** UTC ms of 00:00 Chicago on `ymd`. */
 export function localMidnightMs(ymd: string): number {
   const m = YMD.exec(ymd);
   if (!m) throw new Error(`bad date ${ymd}`);
@@ -96,12 +81,10 @@ export function localMidnightMs(ymd: string): number {
   return second;
 }
 
-/** [start, end) UTC ms covering local days `from`..`to` inclusive. */
 export function dayRangeMs(from: string, to: string): { startMs: number; endMs: number } {
   return { startMs: localMidnightMs(from), endMs: localMidnightMs(addDays(to, 1)) };
 }
 
-/** Local days from..to inclusive. */
 export function eachDay(from: string, to: string): string[] {
   const out: string[] = [];
   for (let d = from; d <= to; d = addDays(d, 1)) out.push(d);
@@ -112,7 +95,6 @@ export function todayLocal(now: number = Date.now()): string {
   return localParts(now).ymd;
 }
 
-/** "HH:MM" (00:00–24:00) → minutes since midnight, or null when not valid. */
 export function parseHm(value: string): number | null {
   const m = HM.exec(value.trim());
   if (!m) return null;
@@ -122,11 +104,6 @@ export function parseHm(value: string): number | null {
   return h * 60 + min;
 }
 
-/**
- * Nightscout timestamps are UTC ISO strings, usually with `Z`. A string with
- * no zone designator is treated as UTC (Nightscout's convention), never as
- * the host's local time.
- */
 export function parseTimestamp(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value !== "string" || !value.trim()) return null;

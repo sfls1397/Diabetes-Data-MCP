@@ -1,8 +1,6 @@
 #!/bin/sh
 set -eu
 export PATH="$HOME/.local/bin:$PATH"
-# Scan only what this push sends: the history of each pushed tip. Never --all, which reads every branch and every linked
-# worktree's HEAD; another job's scratch debug commit failed the PR 544 push that way (Nov 12). Deletes send no commits.
 set --
 while read -r _ local_sha _ _; do
   case "$local_sha" in

@@ -1,8 +1,4 @@
 #!/bin/sh
-# Health/prove check for the Diabetes Data Nightscout. Read-only. Never prints secrets:
-# the api-secret header (SHA-1 of the Keychain secret) goes to curl on stdin.
-# Usage: sh nightscout/prove.sh [base-url]   (default http://127.0.0.1:8425)
-# Exit 0 = every check PASS; 1 = something failed.
 set -u
 HOME_DIR=${DIABETES_NIGHTSCOUT_HOME:-$HOME/.diabetes-data/nightscout}
 RT=$HOME_DIR/runtime
@@ -22,7 +18,6 @@ unset SECRET
 [ ${#H} -eq 40 ] || { echo "FAIL  API secret hashing failed"; exit 1; }
 authget() { printf 'header = "api-secret: %s"\n' "$H" | curl -sS -m 10 -K - "$@"; }
 
-# Listeners: mongod loopback only; Nightscout on its configured bind.
 m=$(lsof -nP -iTCP:27017 -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $9}' | sort -u | tr '\n' ' ')
 case "$m" in "127.0.0.1:27017 ") ok "mongod listens on 127.0.0.1:27017 only" ;; *) bad "mongod listeners: '${m:-none}'" ;; esac
 
@@ -41,7 +36,6 @@ let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const e=JSON.parse(s)[0]
 const age=Math.round((Date.now()-e.date)/60000);
 console.log(`INFO  newest SGV ${e.dateString} ${e.sgv} (${age} min ago)`)})'
 
-# Counts straight from Mongo (Nightscout ships the mongodb driver).
 cd "$RT/nightscout" && "$NODE" --no-deprecation -e '
 const {MongoClient}=require("mongodb");(async()=>{
 const c=await MongoClient.connect("mongodb://127.0.0.1:27017");const db=c.db("Nightscout");

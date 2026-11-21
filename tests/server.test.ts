@@ -61,9 +61,8 @@ describe("config", () => {
   });
 });
 
-// Persisted overrides survive package upgrades and take precedence over a new default.
 describe("persistent local database setting", () => {
-  it("uses the saved archive without re-entry, while env remains the explicit override", () => {
+  it("uses the saved archive without re-entry, so it survives a package upgrade and beats a new default, while env remains the explicit override", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "diabetes-local-config-"));
     const saved = path.join(home, "existing-archive.sqlite");
     fs.writeFileSync(path.join(home, "config.json"), JSON.stringify({ dbPath: saved }));

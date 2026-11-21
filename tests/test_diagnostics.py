@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sync"))
@@ -73,7 +73,7 @@ class DiagnosticsTests(unittest.TestCase):
                 self.record(output.getvalue(), stage, kind)
 
     def test_real_fetch_and_parse_boundaries(self):
-        response = unittest.mock.MagicMock()
+        response = MagicMock()
         response.__enter__.return_value.read.return_value = CANARY.encode()
         with patch.object(sync, "ensure_auth", return_value=("https://fixture.invalid", CANARY)), \
              patch.object(sync, "api_secret_header", return_value=CANARY), \

@@ -10,12 +10,6 @@ import { openDatabaseForFixture, openDatabaseReadOnly } from "../src/db/open.js"
 import { callTool } from "../src/mcp/queries.js";
 import { FIXTURE_TREATMENTS, fixtureSgv } from "./fixture.js";
 
-/*
- * End-to-end: a fake Nightscout serves the fixture readings/treatments, the
- * real sync script (sync/diabetes-sqlite-sync) writes a temp archive, and the
- * MCP reads it back. Checks that the Python daily_stats and the MCP's
- * get_range_stats agree, so box-era rollups and computed windows match.
- */
 const run = promisify(execFile);
 const SYNC = path.resolve(__dirname, "../sync/diabetes-sqlite-sync");
 const SECRET = "test-api-secret-not-real";
@@ -31,7 +25,6 @@ const entries = [
     device: "share2",
     type: "sgv"
   })),
-  // meter reading without sgv: skipped by the sync
   { _id: "mbg1", date: Date.parse("2025-11-02T15:00:00Z"), dateString: "2025-11-02T15:00:00.000Z", mbg: 110, type: "mbg" }
 ].sort((a, b) => b.date - a.date);
 
@@ -183,27 +176,23 @@ describe("backfill and incremental rollups", () => {
     env: env(dbPath, { NIGHTSCOUT_URL: baseUrl, NIGHTSCOUT_API_SECRET: SECRET, DIABETES_SYNC_PAGE: "200", ...extra })
   });
 
-  it("backfill restores history a routine sync never revisits, and removes synthetic-id duplicates", async () => {
+  it("backfill restores history a routine sync never revisits because it stops at the newest stored reading, removes synthetic-id and deleted-and-reposted duplicates, and keeps rows only the archive has", async () => {
     const dbPath = tempDb();
     await run(SYNC, ["sync"], opts(dbPath));
 
-    // Simulate the live archive: older history missing, t3 stored under a box-era synthetic id.
     const w = openDatabaseForFixture(dbPath);
     w.exec("DELETE FROM sgv WHERE date_ms < " + Date.parse("2025-11-02T00:00:00Z"));
     w.exec("DELETE FROM treatments WHERE id IN ('t1','t3')");
     w.exec(
       "INSERT INTO treatments(id,created_at,event_type,insulin,carbs,entered_by,raw_json) VALUES " +
         "('2025-11-01T17:30:00.000Z:Combo Bolus:3:45','2025-11-01T17:30:00.000Z','Combo Bolus',3,45,'tconnectsync','{}')," +
-        // a real-looking id Nightscout no longer has, same event as t4 (tconnectsync delete + re-post)
         "('aaaaaaaaaaaaaaaaaaaaaaaa','2025-11-03T09:00:00-06:00','Meal Bolus',2,30,'tconnectsync','{}')," +
-        // history that only the archive has: no counterpart in Nightscout, must be kept
         "('bbbbbbbbbbbbbbbbbbbbbbbb','2025-10-15T12:00:00.000Z','Combo Bolus',1,NULL,'tconnectsync','{}')"
     );
     const gaps = w.prepare("SELECT COUNT(*) AS n FROM sgv").get() as { n: number };
     w.close();
     expect(gaps.n).toBeLessThan(864);
 
-    // A routine sync stops at the newest stored reading, so the gap stays.
     const routine = await run(SYNC, ["sync"], opts(dbPath));
     const afterRoutine = openDatabaseReadOnly(dbPath);
     expect((afterRoutine.prepare("SELECT COUNT(*) AS n FROM sgv").get() as { n: number }).n).toBeLessThan(864);
@@ -231,13 +220,13 @@ describe("backfill and incremental rollups", () => {
   it("recomputes only the newest days on a routine sync, and everything on recompute", async () => {
     const dbPath = tempDb();
     const o = opts(dbPath, { DIABETES_SYNC_RECOMPUTE_DAYS: "0" });
-    await run(SYNC, ["sync"], o); // empty daily_stats: full pass
+    await run(SYNC, ["sync"], o);
 
     const w = openDatabaseForFixture(dbPath);
     w.exec("UPDATE daily_stats SET tir_80_180 = -1 WHERE day = '2025-11-01'");
     w.close();
 
-    await run(SYNC, ["sync"], o); // same local day: recent only
+    await run(SYNC, ["sync"], o);
     let db = openDatabaseReadOnly(dbPath);
     expect((db.prepare("SELECT tir_80_180 AS t FROM daily_stats WHERE day='2025-11-01'").get() as { t: number }).t).toBe(-1);
     db.close();
@@ -259,15 +248,12 @@ describe("combo bolus insulin totals", () => {
     const ins = w.prepare(
       "INSERT INTO treatments(id,created_at,event_type,insulin,entered_by,raw_json) VALUES (?,?,?,?,?,?)"
     );
-    // 2025-11-02: combo 3.46 now of 5.64 total, 60/40 over 2 h, extended entry absent -> 3.46 + 2.256
     ins.run("c1", "2025-11-02T18:00:00.000Z", "Combo Bolus", 3.46, "Pump (tconnectsync)",
       JSON.stringify({ enteredinsulin: 5.64, splitNow: 60, splitExt: 40, duration: 120, relative: 1.13, pump_event_id: "10,11,12,13" }));
-    // 2025-11-03: combo 2 now of 4 total, 50/50 over 1 h, extension cancelled: its own row delivered 1.2 U
     ins.run("c2", "2025-11-03T20:00:00.000Z", "Combo Bolus", 2, "Pump (tconnectsync)",
       JSON.stringify({ enteredinsulin: 4, splitNow: 50, splitExt: 50, duration: 60, relative: 2, pump_event_id: "20,21,22,23" }));
     ins.run("c2x", "2025-11-03T20:40:00.000Z", "Combo Bolus", 1.2, "Pump (tconnectsync)",
       JSON.stringify({ notes: "Extended Bolus", pump_event_id: "40" }));
-    // a combo request the pump never completed (no insulin): counts nothing
     ins.run("c3", "2025-11-02T22:00:00.000Z", "Combo Bolus", null, "Pump (tconnectsync)",
       JSON.stringify({ enteredinsulin: 6, splitNow: 60, splitExt: 40, duration: 120, pump_event_id: "30,31,32,33" }));
     w.close();
@@ -280,7 +266,6 @@ describe("combo bolus insulin totals", () => {
       const eff = Object.fromEntries((db.prepare("SELECT id, insulin_effective AS e FROM treatments WHERE id IN ('c1','c2','c2x','c3')").all() as { id: string; e: number }[]).map((r) => [r.id, r.e]));
       expect(eff).toEqual({ c1: 5.716, c2: 2, c2x: 1.2, c3: null });
       const day = (d: string) => db.prepare("SELECT bolus_u FROM daily_stats WHERE day = ?").get(d) as { bolus_u: number };
-      // fixture bolus on 11-02 is 0; on 11-03 the Meal Bolus is 2 U (the 11-04 UTC correction is 11-03 local too: 1.5)
       expect(day("2025-11-02").bolus_u).toBeCloseTo(5.716, 3);
       const call = (name: string, args: Record<string, unknown>) => JSON.parse(callTool(db, name, args, dbPath));
       for (const d of ["2025-11-02", "2025-11-03"]) {

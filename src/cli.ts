@@ -57,8 +57,6 @@ async function main(): Promise<void> {
       `Diabetes database not found at ${config.dbPath}. This MCP does not create or write it; com.diabetes-sqlite.sync is the sole writer.`
     );
   }
-  // Read-only open. Do not create tables, do not call Nightscout, and do
-  // not launch or edit com.diabetes-sqlite.sync (every minute).
   const db = openDatabaseReadOnly(config.dbPath);
 
   if (command === "stdio") {

@@ -318,6 +318,8 @@ npm test          # vitest: tools, time math, HTTP auth, and a fake-Nightscout e
 npm run typecheck
 ```
 
+The code carries no comments (a lint rule bans them). A reason the code cannot show lives in [docs/DESIGN-REASONS.md](docs/DESIGN-REASONS.md) or in the name of the test that guards it.
+
 
 ### Persistent database setting
 

@@ -5,12 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-/*
- * Gate downloads used to hang about 650 s on a stalled GitHub path and then fail (curl 56). Both download sites now
- * abort a stalled transfer and retry a bounded number of times. The tconnectsync fetch() is cut out of install.sh and
- * run against a fake curl, so no network is used; the real stall behaviour was probed against a local server that
- * accepts and never answers (curl exit 28 and a git "Operation too slow" failure after the bounded attempts).
- */
 const ROOT = path.resolve(__dirname, "..");
 const INSTALL = fs.readFileSync(path.join(ROOT, "tconnectsync/install.sh"), "utf8");
 const GATE = fs.readFileSync(path.join(ROOT, "scripts/nightscout-local-test.sh"), "utf8");
@@ -41,7 +35,6 @@ function run(dir: string, env: Record<string, string> = {}) {
 }
 
 const calls = (dir: string) => (fs.existsSync(path.join(dir, "curl.args")) ? fs.readFileSync(path.join(dir, "curl.args"), "utf8").trim().split("\n") : []);
-// A fake curl that fails (as a stalled transfer does, exit 28) until the Nth call, then writes the real bytes.
 const flaky = (okOn: number, bytes = BODY) =>
   `n=$(wc -l < "${"$0"}.n" 2>/dev/null || echo 0); echo x >> "$0.n"; n=$((n + 1))\n` +
   `while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n` +
@@ -63,7 +56,6 @@ describe("tconnectsync install.sh fetch()", () => {
     expect(fs.existsSync(path.join(dir, "w.whl.tmp"))).toBe(false);
   });
   it("resumes the partial file after a stall instead of starting over", () => {
-    // First call: write half the bytes then stall (exit 28). Later calls must see -C - and append the rest.
     const dir = setup(
       `while [ $# -gt 0 ]; do case "$1" in -o) out=$2;; -C) resume=1;; esac; shift; done\n` +
         `if [ ! -s "$out" ]; then printf 'wheel ' > "$out"; exit 28; fi\n` +
@@ -75,7 +67,6 @@ describe("tconnectsync install.sh fetch()", () => {
     expect(fs.readFileSync(path.join(dir, "w.whl"), "utf8")).toBe(BODY);
   });
   it("recovers in one run from an oversize stale .tmp (curl exit 33) by deleting it", () => {
-    // curl -C - against a .tmp bigger than the real file exits 33 (range error) on every attempt unless the .tmp goes.
     const dir = setup(
       `while [ $# -gt 0 ]; do [ "$1" = -o ] && out=$2; shift; done\n` +
         `if [ -s "$out" ]; then exit 33; fi\nprintf 'wheel bytes\\n' > "$out"`

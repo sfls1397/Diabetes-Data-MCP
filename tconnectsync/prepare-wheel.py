@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Change only the verified upstream wheel's obsolete PyJWT requirement."""
 import base64
 import csv
 import hashlib

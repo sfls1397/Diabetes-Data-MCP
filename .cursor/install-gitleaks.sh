@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Cursor Cloud runs on Linux. Install only the checksum-verified pinned release.
 set -euo pipefail
 
 version='8.30.1'
@@ -48,7 +47,6 @@ if ! cmp -s "$temporary/gitleaks" "$install_dir/gitleaks"; then
   install -m 0755 "$temporary/gitleaks" "$install_dir/gitleaks"
 fi
 chmod +x "$install_dir/gitleaks"
-# Exports last for this script only. The always-applied rule sets PATH in new shells.
 export PATH="$install_dir:$PATH"
 git config core.hooksPath .githooks
 chmod +x .githooks/pre-commit

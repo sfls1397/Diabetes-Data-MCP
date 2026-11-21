@@ -13,13 +13,13 @@ No production dependency advisories at rollout.
 
 ## Code Findings
 
-- `sync/sync_from_nightscout.py:101`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `sync/sync_from_nightscout.py:85`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
-- `sync/sync_from_nightscout.py:249`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `sync/sync_from_nightscout.py:225`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
-- `tconnectsync/enrich_combos.py:36`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `tconnectsync/enrich_combos.py:35`, `python-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
-- `tests/sync.test.ts:22`, `javascript-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
+- `tests/sync.test.ts:16`, `javascript-weak-password-hash`: Nightscout requires SHA-1(api-secret) on the API wire. This exact call implements that protocol, masks its digest in logs, or tests that behavior; it is not password storage. Keep TLS enabled and secrets outside git. Exact call fingerprint reviewed through 2027-10-11; unrelated hash calls still block.
 
 
 ## Running and Reviewing

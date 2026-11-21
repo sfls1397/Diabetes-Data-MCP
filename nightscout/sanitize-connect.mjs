@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Connector diagnostics include credentials/session payloads. Disable its verbose
-// data dumps and emit only generic warning/error indicators in this deployment.
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -31,7 +29,6 @@ for (const [name, expected] of Object.entries(sources)) {
     if (name === 'index.js') content = Buffer.from(content.toString().replace(actorSafe, actorOriginal));
     if (createHash('sha256').update(content).digest('hex') !== expected) throw new Error('Connector logging source mismatch');
   } else {
-    // Source hashes are checked before any mutation.
   }
   let output = content.toString();
   if (name === 'index.js') {

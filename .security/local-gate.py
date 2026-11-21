@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""Local pre-PR/pre-deploy gate, recorded on GitHub as the merge requirement.
-
-Runs every repository gate on the exact commit in a clean temporary worktree:
-hooks and pinned scanners, Git metadata and Gitleaks over the head's full history, production npm
-audit (high), offline Semgrep with ShellCheck/Clang, the enforcement probes and
-this repository's tests from .security/local-gate.json. The result is recorded
-on that commit as the `local-gate` commit status and, for a PR, a PR comment.
-merge-pr.py requires the recorded PASS on the exact PR head. Step output stays
-on this machine; GitHub receives only step names, results and timings.
-
-  python3 .security/local-gate.py PR_NUMBER   # from the reviewed PR checkout
-  python3 .security/local-gate.py deploy      # pre-deploy run on the checked-out commit
-"""
 import datetime
 import hashlib
 import json
@@ -31,8 +18,6 @@ PINS = {'gitleaks': ('.cursor/install-gitleaks.sh', ['gitleaks', 'version']),
         'semgrep': ('.cursor/install-semgrep.sh', ['semgrep', '--version']),
         'shellcheck': ('.cursor/install-shellcheck.sh', ['shellcheck', '--version'])}
 STANDARD = [
-    # Both history scans read the gated head's own history (HEAD in the gate's worktree), never --all: the worktree shares
-    # this repo's refs, so --all read other jobs' branches and scratch worktrees (Toolbox PR 554, Nov 12).
     ('Git metadata (raw author/committer, messages)', ['python3', '.security/metadata.py', 'history', 'HEAD']),
     ('Gitleaks full history', ['gitleaks', 'git', '--log-opts=HEAD', '--config', '.gitleaks.toml',
                                '--redact=100', '--no-banner', '.']),
@@ -44,8 +29,6 @@ STANDARD = [
 
 LINT = ('Types and strict lint (tsc, ESLint, Ruff, Pyright, imports, comments)', ['python3', '.security/lint.py', 'gate'])
 
-# A step's own warning lines (scripts/mocha-retry-report.cjs: an upstream Nightscout test that passed only on its retry):
-# shown on this console under the step, never a failure and never sent to GitHub. Only a line that starts with the marker counts.
 GATE_WARNING = re.compile(r'^gate-warning: (.+)$', re.M)
 MAX_WARNINGS = 10
 MAX_WARNING_TEXT = 400

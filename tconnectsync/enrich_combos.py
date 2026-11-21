@@ -22,12 +22,11 @@ import arrow
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import combo_bolus  # noqa: E402
-import diabetes_tconnectsync  # noqa: E402
+import combo_bolus
+import diabetes_tconnectsync
 
 
 def ns_find_combos(url, secret, start, end):
-    """Existing 'Combo Bolus' docs, padded a day each way (extended entries land later)."""
     lo = start.shift(days=-1).to("utc").format("YYYY-MM-DDTHH:mm:ss.SSS") + "Z"
     hi = end.shift(days=1).to("utc").format("YYYY-MM-DDTHH:mm:ss.SSS") + "Z"
     q = "find[eventType]=%s&find[created_at][$gte]=%s&find[created_at][$lte]=%s&count=10000" % (
@@ -67,7 +66,7 @@ def main(argv):
     idx = combo_bolus.Index(bolus_events)
 
     pb = ProcessBolus(tconnect, ns, device["assignmentId"], pretend=True, features=[featmod.BOLUS])
-    pb.nightscout.last_uploaded_entry = lambda *a, **k: None      # re-emit everything in range
+    pb.nightscout.last_uploaded_entry = lambda *a, **k: None
     entries = [e for e in pb.process(bolus_events, start, end) if e.get("splitNow") is not None]
 
     docs_by_first = {}
@@ -76,9 +75,6 @@ def main(argv):
         if first.isdigit():
             docs_by_first.setdefault(int(first), []).append(doc)
 
-    # A combo is replaced only when its old plain immediate-dose doc exists; otherwise it is
-    # already correct (or was removed on purpose) and is left alone. The redundant
-    # extended-completion doc goes with it.
     delete, upload = [], []
     for entry in entries:
         seq = int(str(entry["pump_event_id"]).split(",")[0])

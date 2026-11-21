@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/** Scan exactly the files npm will publish, without lifecycle scripts or private output. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
