@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Check Git privacy metadata without printing identity or message values."""
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-# Public tool attribution in pre-existing history is not a personal identity.
-# New commits must always use GitHub noreply, including tool-generated commits.
 PUBLIC_TOOL_IDENTITIES = {'cursoragent@cursor.com', 'noreply@anthropic.com'}
 EMAIL = re.compile(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 PRIVATE_PATH = re.compile(r'/Users/(?!example(?:/|$|[^A-Za-z0-9._-])|test(?:/|$|[^A-Za-z0-9._-])|fixture(?:/|$|[^A-Za-z0-9._-])|REPLACE_ME(?:/|$|[^A-Za-z0-9._-]))[A-Za-z0-9._-]+')
@@ -46,15 +43,11 @@ def prospective():
 
 
 def history(revisions=('HEAD',)):
-    # Only the history of what is being checked: the gate's head, or each tip a push sends. Never rev-list --all, which
-    # takes in every branch and every linked worktree's HEAD, so another job's scratch debug commit failed the PR 544 push
-    # and the PR 533 gate (Nov 12).
     revisions = list(revisions) or ['HEAD']
     if any(not rev or rev.startswith('-') for rev in revisions):
         raise RuntimeError('history takes revisions, not options')
     commits = run(['rev-list', '--end-of-options'] + revisions).decode('ascii').splitlines()
     blocked = []
-    # cat-file reads the real commit headers; mailmap cannot hide an identity.
     process = subprocess.Popen(['git', 'cat-file', '--batch'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     try:
         for oid in commits:

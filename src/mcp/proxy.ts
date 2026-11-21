@@ -5,10 +5,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { packageVersion } from "../version.js";
 
-/**
- * stdio -> HTTP bridge for clients that only launch local stdio servers
- * (Claude Desktop on another Mac). Same shape as network-tools-mcp http-proxy.
- */
 export async function runHttpStdioProxy(url: string, token: string | undefined): Promise<void> {
   if (!token) throw new Error("DIABETES_DATA_MCP_TOKEN is required");
   const endpoint = new URL(url);

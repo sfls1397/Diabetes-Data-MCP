@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Merge only the reviewed PR head after a recorded local-gate PASS on that exact SHA."""
 import json
 import re
 import subprocess
@@ -16,7 +15,6 @@ def gh(args):
 
 
 def gate_passed(statuses, login):
-    # Only the owner's newest local-gate status on this SHA counts; GitHub Actions are not the gate.
     trusted = [s for s in statuses if s.get('context') == CONTEXT and s.get('creator', {}).get('login') == login]
     if not trusted:
         return False
@@ -44,7 +42,6 @@ def main():
         result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if result.returncode:
             raise RuntimeError('Local full gates block merge')
-    # GitHub rejects a changed PR head using this atomic SHA condition.
     result = subprocess.run(['gh', 'pr', 'merge', number, '--merge', '--delete-branch', '--match-head-commit', sha], capture_output=True)
     if result.returncode:
         raise RuntimeError('Merge failed or PR changed; re-review')
@@ -52,8 +49,6 @@ def main():
 
 
 def full_gates():
-    """The gates rerun on the checked-out PR head. Both history scans read HEAD's history only, never --all, so another
-    job's branch or scratch worktree can't block this merge (Toolbox PR 554, Nov 12)."""
     return [['python3', '.security/metadata.py', 'history', 'HEAD'],
             ['gitleaks', 'git', '--log-opts=HEAD', '--config', '.gitleaks.toml', '--redact=100', '--no-banner', '.'],
             ['python3', '.security/scan.py', 'all']]

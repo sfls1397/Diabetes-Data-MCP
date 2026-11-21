@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Fail closed on known advisories in the locked or installed Python graph."""
 import importlib.metadata
 import json
 from pathlib import Path

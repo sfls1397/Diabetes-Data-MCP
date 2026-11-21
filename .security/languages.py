@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Additional local code checks for shell and macOS native helpers."""
 import json
 import platform
 import plistlib
@@ -41,7 +40,6 @@ def check(root, targets=None, native_required=False):
         if not shutil.which('clang'):
             raise RuntimeError('Clang missing')
         sdk_dir = Path('/Library/Developer/CommandLineTools/SDKs')
-        # Select an SDK compatible with the installed compiler, then fail on findings.
         sdks = [None] + sorted(sdk_dir.glob('MacOSX[0-9]*.sdk'), reverse=True) if sdk_dir.exists() else [None]
         for source in native:
             completed = False

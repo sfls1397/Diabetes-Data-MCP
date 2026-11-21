@@ -27,11 +27,9 @@ import {
 } from "./sql.js";
 import { runGetActiveProfile, runGetProfileAsOf, runGetSettingsVsDelivery, runListProfileChanges } from "./profiles.js";
 
-/** Product rule: time in range is 80–180 mg/dL. Never 70–180. */
 export const TIR_LOW = 80;
 export const TIR_HIGH = 180;
 export const WRITER = "com.diabetes-sqlite.sync (every minute)";
-/** The sync runs every minute; an hour without one means it is stuck. */
 const STALE_AFTER_HOURS = 1;
 const CGM_SLOT_MS = 5 * 60_000;
 const DAY_MS = 86_400_000;
@@ -46,14 +44,11 @@ function stamp(ms: number | null): { ts: string | null; local: string | null } {
   return { ts: isoUtc(ms), local: ms == null ? null : localIso(ms) };
 }
 
-// ---------------------------------------------------------------------------
-// Slices: local time-of-day and weekday filters
 
 interface Slice {
   fromMin?: number;
   toMin?: number;
   weekdays?: Set<number>;
-  /** minutes per day the slice covers */
   minutesPerDay: number;
   matches(ms: number): boolean;
   describe: Record<string, unknown>;
@@ -108,8 +103,6 @@ function buildSlice(args: Record<string, unknown>, allowWeekdays: boolean): Slic
   };
 }
 
-// ---------------------------------------------------------------------------
-// Glucose math (same formulas as the sync's daily_stats: population SD)
 
 export function glucoseStats(values: number[]): Record<string, number | null> {
   const n = values.length;
@@ -157,7 +150,6 @@ export function glucoseStats(values: number[]): Record<string, number | null> {
   };
 }
 
-/** Same classification as the sync's daily_stats bolus_u / basal_u. */
 export function insulinTotals(rows: Row[]): Record<string, number | null> {
   let bolus = 0;
   let tempBasal = 0;
@@ -165,8 +157,6 @@ export function insulinTotals(rows: Row[]): Record<string, number | null> {
   let carbs = 0;
   for (const r of rows) {
     const et = String(r.event_type ?? "").toLowerCase();
-    // insulin_effective = units the row adds to totals (combo: immediate + extended when
-    // its separate extended entry is absent). Older archives lack it: fall back to insulin.
     const insulin = num(r.insulin_effective) ?? num(r.insulin) ?? 0;
     const c = num(r.carbs);
     if (c) carbs += c;
@@ -194,8 +184,6 @@ export function insulinTotals(rows: Row[]): Record<string, number | null> {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Shared readers
 
 function sgvRows(db: DatabaseSync, startMs: number, endMs: number, withRaw = false): Row[] {
   return db
@@ -206,11 +194,6 @@ function sgvRows(db: DatabaseSync, startMs: number, endMs: number, withRaw = fal
     .all(startMs, endMs) as Row[];
 }
 
-/**
- * Treatments whose created_at falls in [startMs, endMs). created_at is a text
- * ISO timestamp whose exact format varies by uploader, so SQL narrows with a
- * one-day margin and the exact window is applied on the parsed time.
- */
 function treatmentRows(db: DatabaseSync, startMs: number, endMs: number, withRaw = false): (Row & { _ms: number })[] {
   const effective = tableColumns(db, "treatments").has("insulin_effective") ? ", insulin_effective" : "";
   const rows = db
@@ -248,13 +231,6 @@ function count(db: DatabaseSync, table: string): number {
   return Number((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n);
 }
 
-/**
- * Row count the sync recorded in meta with its last commit (exact: the sync is
- * the only writer). Counting sgv and treatments here instead reads hundreds of
- * MB when the page cache is cold, and node:sqlite blocks every other request
- * meanwhile, so only fall back to COUNT(*) for an archive the sync hasn't
- * stamped yet.
- */
 function storedCount(db: DatabaseSync, meta: Record<string, string>, table: string): { n: number; stored: boolean } {
   const raw = meta[`${table}_count`];
   if (raw != null && /^\d+$/.test(raw)) return { n: Number(raw), stored: true };
@@ -287,8 +263,6 @@ function statsRow(r: Row, extra: string[]): Row {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Tools
 
 export function runSyncStatus(db: DatabaseSync, dbPath: string, now: number = Date.now()): string {
   const meta = metaMap(db);

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Shared pinned scanner installation for Cursor Linux and host Python 3.10+.
 set -euo pipefail
 version='1.180.0'
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,7 +9,6 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' || {
 }
 if [[ ! -x "$install_root/bin/semgrep" ]] || [[ "$("$install_root/bin/semgrep" --version 2>/dev/null)" != "$version" ]]; then
   mkdir -p -- "$(dirname -- "$install_root")"
-  # Default cloud images omit ensurepip; keep the same pin via system pip.
   if python3 -c 'import ensurepip' >/dev/null 2>&1; then
     python3 -m venv --clear "$install_root"
   else

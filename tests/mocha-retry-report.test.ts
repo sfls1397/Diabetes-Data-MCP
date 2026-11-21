@@ -2,10 +2,6 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-/*
- * scripts/mocha-retry-report.cjs is the root hook plugin the Nightscout local test loads into upstream mocha. Mocha
- * calls afterEach with this.currentTest set and afterAll once at the end; these probes drive it the same way.
- */
 const PLUGIN = path.resolve(__dirname, "../scripts/mocha-retry-report.cjs");
 
 type FakeTest = { state?: string; currentRetry: () => number; fullTitle: () => string };
@@ -32,7 +28,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("mocha retry report", () => {
   it("names a test that passed only on its retry on a gate-warning line", () => {
     const lines = printed(fresh(), [
-      test(undefined, 0, "carbs TEST-CARB-004"), // the failed first attempt: mocha has not set a state yet
+      test(undefined, 0, "carbs TEST-CARB-004"),
       test("passed", 1, "carbs TEST-CARB-004"),
       test("passed", 0, "entries steady"),
     ]);

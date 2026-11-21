@@ -1,16 +1,6 @@
 #!/bin/sh
-# Nightscout on the Mini, LAN only (com.diabetes-nightscout.server).
-# API_SECRET: the same plaintext site secret the Diabetes sync sends as SHA-1. It is
-# never written to disk, config, or logs. Missing secret exits 2.
-# Dexcom Share bridge stays OFF unless BRIDGE_ENABLE=1 in ~/.diabetes-data/nightscout/config.env;
-# then BRIDGE_USER_NAME / BRIDGE_PASSWORD are needed too.
-# Each secret comes from its environment variable when set and non empty (infisical-run
-# injects it), else from the Keychain: diabetes-sqlite/api-secret,
-# diabetes-nightscout/dexcom-username and dexcom-password. config.env never supplies one.
-# Only one Nightscout may poll Share at a time.
 set -eu
 
-# Taken before config.env is read, so only the process environment can supply them.
 ENV_API_SECRET=${API_SECRET:-}
 ENV_BRIDGE_USER_NAME=${BRIDGE_USER_NAME:-}
 ENV_BRIDGE_PASSWORD=${BRIDGE_PASSWORD:-}
@@ -22,7 +12,6 @@ NODE=${NODE_BIN:-$(command -v node || true)}
 test -x "$NODE" || { echo "node not found; set NODE_BIN" >&2; exit 1; }
 test -f "$RT/nightscout/server.js" || { echo "runtime missing: run nightscout/install-runtime.sh" >&2; exit 1; }
 
-# Non-secret defaults. ~/.diabetes-data/nightscout/config.env (KEY=VALUE) overrides them.
 DIABETES_NIGHTSCOUT_HOST=0.0.0.0
 DIABETES_NIGHTSCOUT_PORT=8425
 MONGODB_URI=mongodb://127.0.0.1:27017/Nightscout
@@ -51,8 +40,6 @@ if [ "$BRIDGE_ENABLE" = 1 ]; then
     BRIDGE_PASSWORD=$(security find-generic-password -s diabetes-nightscout -a dexcom-password -w 2>/dev/null); } || {
     echo "BRIDGE_ENABLE=1 but BRIDGE_USER_NAME or BRIDGE_PASSWORD unset and missing from Keychain diabetes-nightscout" >&2; exit 2; }
   export BRIDGE_USER_NAME BRIDGE_PASSWORD BRIDGE_SERVER
-  # v15 migrates BRIDGE to connect; enable its settings namespace so explicit
-  # regions are read. US/EU are legacy enums, not literal DNS hostnames.
   case "$BRIDGE_SERVER" in
     US|us) CONNECT_SHARE_REGION=${CONNECT_SHARE_REGION:-us}; export CONNECT_SHARE_REGION ;;
     EU|eu) CONNECT_SHARE_REGION=${CONNECT_SHARE_REGION:-ous}; export CONNECT_SHARE_REGION ;;
@@ -75,7 +62,6 @@ export THEME=${THEME:-colors}
 export DBSIZE_MAX=${DBSIZE_MAX:-15000}
 export TZ=${TZ:-America/Chicago}
 
-# Wait for com.diabetes-nightscout.mongod (up to 60 s).
 i=0
 while ! nc -z 127.0.0.1 27017 2>/dev/null; do
   i=$((i + 1)); [ $i -ge 60 ] && { echo "mongod not listening on 127.0.0.1:27017" >&2; exit 1; }

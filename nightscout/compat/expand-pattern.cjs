@@ -1,7 +1,6 @@
 'use strict';
 const { expand } = require('brace-expansion');
 
-// Keep the date-range API, with bounded depth, work and output allocation.
 module.exports = function expandPattern(pattern) {
   let depth = 0;
   let tooDeep = false;

@@ -1,6 +1,4 @@
 #!/bin/sh
-# Local-gate run of the Python runtime CI job: install the locked tconnectsync
-# graph twice into a throwaway home and verify it. The live runtime is never used.
 set -eu
 REPO=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)

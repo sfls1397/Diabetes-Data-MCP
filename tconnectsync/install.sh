@@ -1,6 +1,4 @@
 #!/bin/sh
-# Prepare an immutable, audited environment before switching venv.
-# Previous runtimes remain available for rollback. No credentials are read.
 set -eu
 umask 077
 DIR=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
@@ -9,11 +7,6 @@ mkdir -p "$HOME_DIR/runtime" "$HOME_DIR/downloads"
 chmod 700 "$HOME_DIR" "$HOME_DIR/runtime" "$HOME_DIR/downloads"
 
 field() { /usr/bin/python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sys.argv[2]][sys.argv[3]])' "$DIR/runtime-profile.json" "$1" "$2"; }
-# A stalled GitHub path used to hang curl for about 650 s and then fail (curl 56). Each attempt now aborts after
-# STALL seconds below 1 KB/s, and the next attempt resumes the partial file (-C -), so a path that stalls part way still
-# makes progress. The checksum is checked once a transfer completes; a complete file that does not match is deleted and
-# fetched again from the start, and a download that never matches still stops the install.
-# A stale partial file larger than the real one makes curl exit 33 (range error); it is deleted so the next attempt restarts.
 DOWNLOAD_ATTEMPTS=${DIABETES_DOWNLOAD_ATTEMPTS:-5}
 DOWNLOAD_STALL_SECONDS=${DIABETES_DOWNLOAD_STALL_SECONDS:-30}
 DOWNLOAD_RETRY_DELAY=${DIABETES_DOWNLOAD_RETRY_DELAY:-5}
@@ -30,7 +23,6 @@ fetch() {
         fi
         rm -f "$file.tmp"
       elif [ "$status" -eq 33 ]; then
-        # A stale .tmp bigger than the file makes -C - fail with a range error (33) on every attempt: start it over.
         rm -f "$file.tmp"
       fi
       [ "$attempt" -lt "$DOWNLOAD_ATTEMPTS" ] || { rm -f "$file.tmp"; echo "Download of $url failed or did not match its checksum after $attempt attempts" >&2; exit 1; }
@@ -66,7 +58,6 @@ fetch "$(field wheel url)" "$HOME_DIR/downloads/$WHEEL" "$(field wheel sha256)"
 if [ ! -f "$TARGET/.diabetes-runtime-ready" ]; then
   mkdir -p "$TARGET"
   "$PYTHON" -m venv "$TARGET/venv"
-  # Venv executables contain absolute paths; build at the final inactive path.
   "$PYTHON" "$DIR/prepare-wheel.py" "$HOME_DIR/downloads/$WHEEL" "$TARGET/wheels/$WHEEL" "$DIR/runtime-profile.json"
   "$TARGET/venv/bin/python" -m pip install --disable-pip-version-check --require-hashes -r "$DIR/requirements.lock"
   "$TARGET/venv/bin/python" -m pip install --disable-pip-version-check --no-deps --no-index "$TARGET/wheels/$WHEEL"
@@ -84,6 +75,5 @@ if [ -d "$HOME_DIR/venv" ] && [ ! -L "$HOME_DIR/venv" ]; then
   mv "$HOME_DIR/venv" "$HOME_DIR/runtime/legacy-venv-$(date +%s)"
 fi
 ln -s "$TARGET/venv" "$HOME_DIR/.venv-$PROFILE_SHA"
-# rename(2) replaces a symlink itself, rather than following it as mv may do.
 /usr/bin/python3 -c 'import os,sys; os.replace(sys.argv[1],sys.argv[2])' "$HOME_DIR/.venv-$PROFILE_SHA" "$HOME_DIR/venv"
 echo 'tconnectsync 3.0.3: verified Python profile active'

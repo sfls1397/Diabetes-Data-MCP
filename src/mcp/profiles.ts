@@ -3,13 +3,6 @@ import { tableColumns, tableExists } from "../db/open.js";
 import { TIMEZONE, addDays, dayRangeMs, eachDay, isYmd, localIso, localMidnightMs, localParts, offsetMs, parseTimestamp } from "../time.js";
 import { QueryError, assertYmd, bool, clampLimit, dateWindow, json, num, redactUrls, round } from "./sql.js";
 
-/*
- * Pump profile history: read-only over the profile_* tables the sync mirrors from
- * Nightscout's profile collection. One version per Nightscout profile document; the
- * version's active_profile (Nightscout defaultProfile) is in force from its start
- * until the next version starts. Schedules are local America/Chicago time of day.
- * These are data helpers (programmed vs delivered numbers), never dosing advice.
- */
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -18,7 +11,6 @@ const DAY_SEC = 86_400;
 type Row = Record<string, unknown>;
 type Kind = "carbratio" | "sens" | "basal" | "target_low" | "target_high";
 const KINDS: Kind[] = ["carbratio", "sens", "basal", "target_low", "target_high"];
-/** Output names for the Nightscout schedule keys. */
 const KIND_LABEL: Record<Kind, string> = {
   carbratio: "carb_ratio",
   sens: "sensitivity",
@@ -47,7 +39,6 @@ export interface NamedProfile {
 export interface ProfileVersion {
   id: string;
   start_ms: number;
-  /** Next version's start; null for the newest (still in force). */
   end_ms: number | null;
   start_date: string;
   active_profile: string | null;
@@ -74,16 +65,11 @@ function hhmm(sec: number): string {
   return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}`;
 }
 
-/** Seconds since local (Chicago) midnight at `ms`. */
 export function localSecondOfDay(ms: number): number {
   const local = ms + offsetMs(ms);
   return Math.floor((((local % DAY_MS) + DAY_MS) % DAY_MS) / 1000);
 }
 
-/**
- * UTC ms instants at which the Chicago wall clock reads `sec` seconds into local day
- * `ymd`, earliest first: none in a spring-forward gap, two in the repeated fall-back hour.
- */
 export function wallInstants(ymd: string, sec: number): number[] {
   const guess = Date.parse(`${ymd}T00:00:00Z`) + sec * 1000;
   const out = new Set<number>();
@@ -94,10 +80,6 @@ export function wallInstants(ymd: string, sec: number): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
-/**
- * Load every version (oldest first) with its named profiles. Upstream-deleted
- * versions are skipped unless asked for; end_ms always comes from the kept list.
- */
 export function loadProfileTimeline(db: DatabaseSync, includeDeleted = false): ProfileVersion[] {
   requireProfileTables(db);
   const versions = db
@@ -169,7 +151,6 @@ export function loadProfileTimeline(db: DatabaseSync, includeDeleted = false): P
   return includeDeleted ? out : live;
 }
 
-/** Index of the version in force at `ms` (the last one starting at or before it), or -1. */
 export function versionIndexAt(timeline: ProfileVersion[], ms: number): number {
   let lo = 0;
   let hi = timeline.length - 1;
@@ -287,8 +268,6 @@ function otherProfiles(v: ProfileVersion, all: boolean): unknown {
   return names.map((n) => describeProfile(v.profiles.get(n)!));
 }
 
-// ---------------------------------------------------------------------------
-// Tools
 
 export function runGetActiveProfile(db: DatabaseSync, args: Record<string, unknown>, now: number = Date.now()): string {
   const timeline = loadProfileTimeline(db);
@@ -309,7 +288,6 @@ export function runGetActiveProfile(db: DatabaseSync, args: Record<string, unkno
   });
 }
 
-/** `YYYY-MM-DD`, local `YYYY-MM-DD HH:MM[:SS]` / `…THH:MM`, or ISO with Z / offset. */
 export function parseAt(value: unknown): { ms: number; dayOnly: string | null } {
   if (typeof value !== "string" || !value.trim()) throw new QueryError("at is required: YYYY-MM-DD or YYYY-MM-DD HH:MM (America/Chicago)");
   const s = value.trim();
@@ -398,7 +376,6 @@ export function runListProfileChanges(db: DatabaseSync, args: Record<string, unk
     if (v.start_ms < lo || v.start_ms >= hi) continue;
     matched++;
     if (rows.length >= limit) continue;
-    // Compare with the version that was in force just before this one started.
     const prevIdx = versionIndexAt(live, v.start_ms - 1);
     const prev = prevIdx >= 0 && live[prevIdx].id !== v.id ? live[prevIdx] : null;
     const row: Row = versionSummary(v);
@@ -406,7 +383,6 @@ export function runListProfileChanges(db: DatabaseSync, args: Record<string, unk
       row.change = "first_version";
     } else {
       const switched = prev.active_profile !== v.active_profile;
-      // Edits to the now-active profile since the previous version (a newly added profile has none).
       const before = v.active_profile == null ? undefined : prev.profiles.get(v.active_profile);
       const editedList = before ? changedFields(before, v.profiles.get(v.active_profile!)) : [];
       row.previous_active_profile = prev.active_profile;
@@ -438,8 +414,6 @@ export function runListProfileChanges(db: DatabaseSync, args: Record<string, unk
   });
 }
 
-// ---------------------------------------------------------------------------
-// Programmed settings vs delivered insulin
 
 interface Interval {
   s: number;
@@ -481,7 +455,6 @@ function newBucket(profile: string, segment: string, value: number | null): Buck
   return { profile, segment, value, hours: 0, programmed_u: 0, delivered_u: 0, delivery_hours: 0, carb_entries: 0, carbs_g: 0, carb_bolus_u: 0 };
 }
 
-/** [s, e) pieces of the window on which the version, local day and every schedule segment are constant. */
 export function splitWindow(timeline: ProfileVersion[], startMs: number, endMs: number): Interval[] {
   const cuts = new Set<number>([startMs, endMs]);
   for (const v of timeline) if (v.start_ms > startMs && v.start_ms < endMs) cuts.add(v.start_ms);
@@ -492,7 +465,6 @@ export function splitWindow(timeline: ProfileVersion[], startMs: number, endMs: 
   for (const day of eachDay(firstDay, lastDay)) {
     for (const sec of secs) for (const ms of wallInstants(day, sec)) if (ms > startMs && ms < endMs) cuts.add(ms);
   }
-  // Clock changes: local time jumps, so a schedule boundary inside a skipped hour lands here.
   for (let h = Math.ceil(startMs / HOUR_MS) * HOUR_MS; h < endMs; h += HOUR_MS) {
     if (offsetMs(h) !== offsetMs(h - 1)) cuts.add(h);
   }
@@ -539,8 +511,6 @@ export function runGetSettingsVsDelivery(db: DatabaseSync, args: Record<string, 
   const intervals = splitWindow(timeline, startMs, endMs);
   const effective = tableColumns(db, "treatments").has("insulin_effective") ? "insulin_effective" : "NULL AS insulin_effective";
 
-  // Delivered basal: Temp Basal rows (tconnectsync uploads every basal rate change,
-  // scheduled, Control-IQ and suspensions, as back-to-back Temp Basal rows), clipped to the window.
   const basalRows = (
     db
       .prepare(
@@ -575,7 +545,6 @@ export function runGetSettingsVsDelivery(db: DatabaseSync, args: Record<string, 
     }
   }
 
-  // Carbs and boluses. insulin_effective counts a combo's extended part (see list_treatments).
   const txRows = (
     db
       .prepare(

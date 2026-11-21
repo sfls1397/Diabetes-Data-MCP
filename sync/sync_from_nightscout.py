@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""Sync Nightscout entries/treatments/profiles into the Mac Mini diabetes SQLite archive.
-
-Sole writer of ~/.diabetes-data/diabetes.sqlite (LaunchAgent com.diabetes-sqlite.sync,
-every minute via StartInterval=60). Diabetes Data MCP only reads this file.
-
-Credentials (never hardcode, print, or log the Nightscout URL or API secret):
-  each from its env variable when set and non empty (NIGHTSCOUT_URL, NIGHTSCOUT_API_SECRET;
-  infisical-run injects them), else macOS Keychain service `diabetes-sqlite`, accounts
-  `nightscout-url` and `api-secret`
-Missing credentials fail closed: exit 2 before the database is opened or created.
-
-Ported from the Grok box writer (/workspace/diabetes-db/sync_from_nightscout.py);
-schema and daily/weekly math are unchanged so box and Mini rows match."""
 from __future__ import annotations
 
 import fcntl
@@ -33,7 +20,6 @@ from failure_diagnostics import failure_stage, report, staged
 if __name__ == "__main__":
     sys.excepthook = lambda error_type, error, traceback: report(error, stage="startup")
 
-# Private archive, lock and import files are owner-only.
 os.umask(0o077)
 
 HOME = Path(os.environ.get("HOME", str(Path.home())))
@@ -67,7 +53,6 @@ def keychain_get(service: str, account: str) -> str | None:
 
 @staged("credential lookup")
 def load_nightscout_auth() -> tuple[str, str]:
-    """Return (base_url, api_secret_plaintext). Each from its env variable when set, else Keychain."""
     url = os.environ.get("NIGHTSCOUT_URL", "").strip() or keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_URL_ACCOUNT)
     secret = os.environ.get("NIGHTSCOUT_API_SECRET", "").strip() or keychain_get(KEYCHAIN_SERVICE, KEYCHAIN_SECRET_ACCOUNT)
     missing = [a for a, v in ((KEYCHAIN_URL_ACCOUNT, url), (KEYCHAIN_SECRET_ACCOUNT, secret)) if not v]
@@ -93,7 +78,6 @@ def ensure_auth() -> tuple[str, str]:
 
 
 def scrub(message: str) -> str:
-    """Remove the Nightscout base URL and secret from an error message."""
     for value in (BASE, API_SECRET):
         if value:
             message = message.replace(value, "[redacted]")
@@ -102,7 +86,7 @@ def scrub(message: str) -> str:
     return message
 
 TZ = ZoneInfo("America/Chicago")
-PAGE = int(os.environ.get("DIABETES_SYNC_PAGE", "1000"))  # tests page with smaller batches
+PAGE = int(os.environ.get("DIABETES_SYNC_PAGE", "1000"))
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS meta (
@@ -166,10 +150,6 @@ CREATE INDEX IF NOT EXISTS idx_tx_created ON treatments(created_at);
 CREATE INDEX IF NOT EXISTS idx_tx_type ON treatments(event_type);
 """
 
-# Pump profile history (added 2026-10-24). One profile_versions row per Nightscout
-# profile document (tconnectsync PROFILES uploads a new document whenever the pump's
-# settings or active profile change). Each document carries every named profile in
-# its store; defaultProfile is the one active from start_ms until the next version.
 PROFILE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS profile_versions (
   id TEXT PRIMARY KEY,
@@ -219,15 +199,11 @@ PROFILE_KINDS = ("carbratio", "sens", "basal", "target_low", "target_high")
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Create tables/indexes if missing. Safe on every run; portable Mac Mini bootstrap."""
     conn.executescript(SCHEMA_SQL)
     conn.executescript(PROFILE_SCHEMA_SQL)
-    # treatments.insulin_effective: units this row adds to insulin totals (see
-    # apply_combo_effective). Added 2026-10-03; NULL until the first run fills it.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(treatments)")}
     if "insulin_effective" not in cols:
         conn.execute("ALTER TABLE treatments ADD COLUMN insulin_effective REAL")
-    # Seed portable meta if empty
     if conn.execute("SELECT COUNT(*) FROM meta").fetchone()[0] == 0:
         conn.execute("INSERT INTO meta(key,value) VALUES ('schema_version','1')")
         conn.execute("INSERT INTO meta(key,value) VALUES ('timezone','America/Chicago')")
@@ -313,7 +289,6 @@ def upsert_sgv(conn: sqlite3.Connection, rows: list[dict]) -> int:
 def treatment_id(r: dict) -> str:
     tid = r.get("_id") or r.get("identifier")
     if not tid:
-        # synthesize stable-ish id
         tid = f"{r.get('created_at','')}:{r.get('eventType','')}:{r.get('insulin')}:{r.get('carbs')}"
     return str(tid)
 
@@ -363,23 +338,7 @@ def _parse_iso(value: str) -> datetime | None:
 
 
 def apply_combo_effective(conn: sqlite3.Connection) -> int:
-    """Set treatments.insulin_effective so totals reflect insulin actually given.
-
-    A combo bolus in Care Portal shape stores only the immediate part in `insulin`
-    (`enteredinsulin` is the total, `splitExt`% of it extended over `duration` min).
-    Its extended part is either:
-      - its own later single-id "Combo Bolus" row (stock tconnectsync, or VM-era combos
-        whose extended entry survived): that row carries the units actually delivered
-        (less if the extension was cancelled), so the combo row counts `insulin` only; or
-      - absent (current mapping drops it to avoid double counting in Nightscout IOB):
-        the combo row counts `insulin` + requested extended units.
-    A combo row with no `insulin` at all is a request the pump never completed (cancelled);
-    it counts nothing.
-    Every other row counts `insulin`. Recomputed for all combos each run (a few hundred
-    rows); an extended row is matched to at most one combo.
-    """
     is_combo = "event_type = 'Combo Bolus' AND json_extract(raw_json,'$.enteredinsulin') IS NOT NULL"
-    # Non-combo rows always count `insulin` (no-op after the first run).
     conn.execute(f"UPDATE treatments SET insulin_effective = insulin WHERE insulin_effective IS NOT insulin AND NOT ({is_combo})")
     combos = conn.execute(
         """SELECT id, created_at, insulin, insulin_effective AS current,
@@ -407,8 +366,6 @@ def apply_combo_effective(conn: sqlite3.Connection) -> int:
     for c in combos:
         want = c["insulin"]
         start = _parse_iso(c["created_at"])
-        # No immediate amount = the pump never completed this request (it was cancelled and
-        # usually re-entered minutes later as a separate bolus): nothing delivered, add nothing.
         if c["insulin"] is not None and start is not None and c["entered"] is not None and c["split_ext"] is not None and c["dur"]:
             requested_ext = float(c["entered"]) * float(c["split_ext"]) / 100.0
             end = start + timedelta(minutes=float(c["dur"]))
@@ -425,27 +382,13 @@ def apply_combo_effective(conn: sqlite3.Connection) -> int:
 
 
 def ns_query(path: str, params: list[tuple[str, object]]) -> str:
-    """Build a Nightscout query. Keys are literal so bracket find syntax survives.
-
-    Nightscout 15.0.7 rejects JSON `find={...}`: treatments come back as JSON null
-    (the walker used to treat that as "no more data") and entries HTTP 500.
-    Bracket params (`find[field][$lt]=`) succeed, and they also bypass the default
-    treatments window (about the last 96 hours) that a bare `count=` request uses.
-    """
     parts = [f"{key}={urllib.parse.quote(str(value), safe='')}" for key, value in params]
     return f"{path}?{'&'.join(parts)}" if parts else path
 
 
 def page_entries(conn: sqlite3.Connection, full: bool = False) -> int:
-    """Page newest-first until a page overlaps the newest SGV already stored.
-
-    full=True (backfill) walks the whole history to the oldest reading and commits
-    every page, so an interrupted backfill keeps what it already wrote.
-    """
     total = 0
     oldest_seen = None
-    # Stop at the newest stored reading, not the oldest. Stopping at MIN re-walked
-    # the whole archive (and, with a broken find, died on page 2 every run).
     known_max = None if full else conn.execute("SELECT MAX(date_ms) FROM sgv").fetchone()[0]
     safety = 0
     while safety < (100_000 if full else 40):
@@ -484,14 +427,6 @@ def page_entries(conn: sqlite3.Connection, full: bool = False) -> int:
 
 
 def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | None = None) -> int:
-    """Page newest-first until a page overlaps the newest treatment already stored.
-
-    A bare count= request only returns the default ~96h window, capped at PAGE.
-    A backlog longer than that (tconnectsync catching up after a multi-day stall)
-    is only visible by paging with bracket find[created_at][$lt], which is not
-    limited to that window. Stop at MAX(created_at) so a routine run does not
-    re-download history back to the oldest row.
-    """
     total = 0
     oldest_seen = None
     known_max = None if full else conn.execute(
@@ -502,8 +437,6 @@ def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | No
         safety += 1
         params: list[tuple[str, object]] = [("count", PAGE)]
         if oldest_seen is not None:
-            # $lte, not $lt: treatments sharing one created_at can straddle a page edge,
-            # and $lt would skip the ones that did not fit. Re-fetching the edge rows is a no-op upsert.
             params.append(("find[created_at][$lte]", oldest_seen))
         try:
             batch = ns_get(ns_query("/api/v1/treatments.json", params))
@@ -538,7 +471,6 @@ def page_treatments(conn: sqlite3.Connection, full: bool = False, seen: set | No
 
 
 def day_bounds_utc(day: str) -> tuple[int, int]:
-    """Inclusive start ms, exclusive end ms for CT calendar day."""
     d = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=TZ)
     start = d.astimezone(timezone.utc)
     end = (d + timedelta(days=1)).astimezone(timezone.utc)
@@ -577,7 +509,6 @@ def recompute_daily(conn: sqlite3.Connection, day: str, source: str = "Nightscou
         if "bolus" in et or et in ("meal bolus", "correction bolus", "combo bolus", "smb"):
             bolus += float(insulin)
         elif "temp basal" in et or et == "temp basal":
-            # approximate from rate * duration/60 if insulin missing
             if insulin:
                 basal += float(insulin)
             elif r["rate"] is not None and r["duration_min"]:
@@ -596,9 +527,6 @@ def recompute_daily(conn: sqlite3.Connection, day: str, source: str = "Nightscou
 
 
 def week_bounds_for_day(d: date) -> tuple[date, date]:
-    """Sunday–Saturday CT week containing d. week_ending is Saturday."""
-    # Monday=0 ... Sunday=6 in date.weekday(); we want Sunday start
-    # days since Sunday:
     since_sun = (d.weekday() + 1) % 7
     start = d - timedelta(days=since_sun)
     end = start + timedelta(days=6)
@@ -606,7 +534,6 @@ def week_bounds_for_day(d: date) -> tuple[date, date]:
 
 
 def recompute_weekly(conn: sqlite3.Connection, week_ending: str, source: str = "SQLite") -> None:
-    """Rebuild one week of weekly_stats from daily_stats. Keeps existing trend_note."""
     end = datetime.strptime(week_ending, "%Y-%m-%d").date()
     start = end - timedelta(days=6)
     rows = conn.execute(
@@ -618,7 +545,6 @@ def recompute_weekly(conn: sqlite3.Connection, week_ending: str, source: str = "
     ).fetchall()
     if not rows:
         return
-    # Require a full week of daily rows for archived weeks; allow partial only for the in-progress week
     today = datetime.now(TZ).date()
     if end < today and len(rows) < 7:
         return
@@ -680,7 +606,6 @@ def recompute_weeks(conn: sqlite3.Connection, source: str = "SQLite", since: dat
     if since is not None and since > start:
         start = since
     end = datetime.strptime(row[1], "%Y-%m-%d").date()
-    # Align to first Saturday on/after start's week end
     _ws, first_end = week_bounds_for_day(start)
     d = first_end
     count = 0
@@ -708,13 +633,7 @@ def recompute_range(conn: sqlite3.Connection, source: str = "Nightscout API", si
     return count
 
 
-# ---------------------------------------------------------------------------
-# Pump profile history (Nightscout profile collection -> profile_* tables)
 
-# A routine run re-reads the newest documents (Nightscout's own default page size), so
-# a new version or an in-place edit of a recent one lands within a minute. The whole
-# collection is re-read when the table is empty, once per local day, and in backfill /
-# profiles modes; only those full walks can see that a document was deleted upstream.
 PROFILE_RECENT = int(os.environ.get("DIABETES_SYNC_PROFILE_RECENT", "10"))
 PROFILE_FULL_LIMIT = 100_000
 
@@ -723,7 +642,7 @@ def _num(value: object) -> float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
-        out = float(value)  # type: ignore[arg-type]
+        out = float(value)
     except (TypeError, ValueError):
         return None
     return out if math.isfinite(out) else None
@@ -742,11 +661,6 @@ def _segment_start(seg: dict) -> int | None:
 
 
 def schedule_segments(entries: object) -> list[tuple[int, int, str, float | None]]:
-    """A Nightscout schedule -> [(start_sec, end_sec, time, value)], local seconds of day.
-
-    end_sec is the next segment's start (86400 for the last). Like Nightscout's own
-    lookup, the first segment also covers the time before its start, so a schedule
-    always spans the whole day. A repeated start keeps the later entry."""
     if not isinstance(entries, list):
         return []
     by_start: dict[int, tuple[str, float | None]] = {}
@@ -777,13 +691,12 @@ def _doc_start(doc: dict) -> tuple[int, str] | None:
             if parsed is None:
                 continue
             if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)  # Nightscout convention: no zone = UTC
+                parsed = parsed.replace(tzinfo=timezone.utc)
             return int(parsed.timestamp() * 1000), raw.strip()
     return None
 
 
 def parse_profile_doc(doc: object) -> dict | None:
-    """One Nightscout profile document -> version, settings and segment rows (None if unusable)."""
     if not isinstance(doc, dict):
         return None
     pid = doc.get("_id")
@@ -830,8 +743,6 @@ def parse_profile_doc(doc: object) -> dict | None:
 
 @staged("SQLite write")
 def upsert_profile_docs(conn: sqlite3.Connection, docs: list, now: str) -> tuple[int, int, set]:
-    """Upsert by Nightscout _id. Unchanged documents (same content hash) are not rewritten,
-    so repeat runs write nothing. Returns (versions changed, documents skipped, ids seen)."""
     changed = 0
     skipped = 0
     seen: set = set()
@@ -878,7 +789,6 @@ def upsert_profile_docs(conn: sqlite3.Connection, docs: list, now: str) -> tuple
 
 @staged("Nightscout parse")
 def sync_profiles(conn: sqlite3.Connection, full: bool = False) -> None:
-    """Mirror Nightscout's profile collection (read-only GET /api/v1/profile)."""
     today = datetime.now(TZ).date().isoformat()
     have = conn.execute("SELECT COUNT(*) FROM profile_versions").fetchone()[0]
     full = full or have == 0 or meta_get(conn, "profile_last_full_day") != today
@@ -895,7 +805,6 @@ def sync_profiles(conn: sqlite3.Connection, full: bool = False) -> None:
         if seen:
             conn.execute("CREATE TEMP TABLE seen_profiles(id TEXT PRIMARY KEY)")
             conn.executemany("INSERT OR IGNORE INTO seen_profiles(id) VALUES (?)", ((i,) for i in seen))
-            # Kept, not deleted: the archive may be the only copy. Tools ignore marked rows.
             marked = conn.execute(
                 """UPDATE profile_versions SET source_deleted_at=?, updated_at=?
                    WHERE source_deleted_at IS NULL AND id NOT IN (SELECT id FROM seen_profiles)""",
@@ -915,7 +824,6 @@ def sync_profiles(conn: sqlite3.Connection, full: bool = False) -> None:
 
 
 def sync_profiles_safely(conn: sqlite3.Connection, full: bool) -> bool:
-    """Profile errors never undo the glucose/treatment sync committed before this step."""
     try:
         sync_profiles(conn, full=full)
         commit(conn)
@@ -931,17 +839,10 @@ def sync_profiles_safely(conn: sqlite3.Connection, full: bool) -> bool:
 MODES = ("sync", "backfill", "entries", "treatments", "stats", "recompute", "profiles", "check")
 PROFILE_MODES = ("sync", "backfill", "profiles")
 
-# Routine runs (every minute) recompute only the newest days; a full pass runs on
-# an empty daily_stats, once per local day, and in stats/recompute/backfill.
 RECOMPUTE_DAYS = int(os.environ.get("DIABETES_SYNC_RECOMPUTE_DAYS", "3"))
 
 
 def reconcile_treatments(conn: sqlite3.Connection, seen: set) -> int:
-    """After a full Nightscout walk, drop stored treatments Nightscout no longer has
-    (box-era synthesized ids, or rows tconnectsync deleted and re-posted under a new id)
-    when the same event (created_at + eventType) is present under an id Nightscout still
-    has. Without this the old copy double counts insulin in the rollups. Rows with no
-    counterpart are kept: that history exists nowhere else."""
     conn.execute("CREATE TEMP TABLE seen_ids(id TEXT PRIMARY KEY)")
     conn.executemany("INSERT OR IGNORE INTO seen_ids(id) VALUES (?)", ((i,) for i in seen))
     cur = conn.execute(
@@ -993,13 +894,11 @@ def run(mode: str) -> int:
             if since is None:
                 meta_set(conn, "last_full_recompute_day", datetime.now(TZ).date().isoformat())
         if mode != "profiles":
-            # A profiles-only run must not make the glucose archive look freshly synced.
             meta_set(conn, "last_sync_at", datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
             meta_set(conn, "last_sync_mode", mode)
             meta_set(conn, "last_sync_writer", WRITER)
             sgv_n = conn.execute("SELECT COUNT(*) FROM sgv").fetchone()[0]
             tx_n = conn.execute("SELECT COUNT(*) FROM treatments").fetchone()[0]
-            # sync_status reads these instead of scanning both tables on every call.
             meta_set(conn, "sgv_count", str(sgv_n))
             meta_set(conn, "treatments_count", str(tx_n))
             print(f"totals: sgv={sgv_n} treatments={tx_n}")
@@ -1023,7 +922,6 @@ def _main() -> int:
     print(f"{stamp} diabetes-sqlite-sync {mode} db={DB_PATH}")
     network = mode in ("sync", "backfill", "entries", "treatments", "profiles", "check")
     if network:
-        # Fail closed before the database is opened or created.
         try:
             ensure_auth()
         except MissingCredentials as e:

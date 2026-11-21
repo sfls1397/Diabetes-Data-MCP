@@ -1,6 +1,5 @@
 import { isYmd, parseHm } from "../time.js";
 
-/** Meta keys or values that could carry a Nightscout URL, API secret, or token. */
 const SECRET_KEY = /secret|token|password|authorization|api_?key|url/i;
 const ANY_URL = /https?:\/\/\S+/gi;
 
@@ -34,7 +33,6 @@ export function assertHm(value: unknown, label: string): number | undefined {
   return minutes;
 }
 
-/** Required date_from, optional date_to (defaults to date_from), in order. */
 export function dateWindow(args: Record<string, unknown>, maxDays: number): { from: string; to: string } {
   const from = assertYmd(args.date_from, "date_from");
   const to = assertYmd(args.date_to, "date_to") ?? from;

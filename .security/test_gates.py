@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Negative enforcement probes, including partially staged changes and outages."""
 import importlib.util
 import json
 import os
@@ -88,7 +87,6 @@ class Gates(unittest.TestCase):
         gate.ROOT = self.root
         self.cmd(['git', 'init', '-q'])
         self.cmd(['git', 'add', '.'])
-        # No test commits: probes never bypass a real repository's hook.
 
     def tearDown(self):
         gate.ROOT = self.oldroot
@@ -103,10 +101,8 @@ class Gates(unittest.TestCase):
         p.write_text('eval(userInput);\n')
         self.cmd(['git', 'add', 'probe.js'])
         p.write_text('JSON.parse(userInput);\n')
-        # Metadata initially staged would trigger real npm; check only source.
         self.cmd(['git', 'reset', '-q', '--', 'package.json', 'package-lock.json', '.security/policy.json'])
         self.cmd(['git', 'add', '.security/policy.json', 'package.json', 'package-lock.json'])
-        # Fake npm returns a successful empty audit; source still comes from index.
         self.fake_npm({'vulnerabilities': {}}, 0)
         with self.assertRaises(RuntimeError):
             gate.staged()
@@ -123,7 +119,6 @@ class Gates(unittest.TestCase):
         d = self.root / 'fake-bin'
         d.mkdir(exist_ok=True)
         p = d / 'npm'
-        # The fixture contains only controlled JSON, no command substitution.
         p.write_text('#!/bin/sh\ncat <<\'JSON\'\n' + json.dumps(value) + '\nJSON\nexit ' + str(status) + '\n')
         p.chmod(0o755)
         old = os.environ['PATH']

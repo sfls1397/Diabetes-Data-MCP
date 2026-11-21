@@ -16,9 +16,7 @@ describe("America/Chicago day math", () => {
   });
 
   it("maps UTC instants to Chicago day, minute, and weekday", () => {
-    // 2025-11-04T05:30Z is Monday 2025-11-03 23:30 CST
     expect(localParts(Date.parse("2025-11-04T05:30:00Z"))).toEqual({ ymd: "2025-11-03", minuteOfDay: 23 * 60 + 30, weekday: 1 });
-    // 2026-09-30T10:00Z is Wednesday 05:00 CDT
     expect(localParts(Date.parse("2026-09-30T10:00:00Z"))).toEqual({ ymd: "2026-09-30", minuteOfDay: 300, weekday: 3 });
     expect(localIso(Date.parse("2026-09-30T10:00:00Z"))).toBe("2026-09-30T05:00:00-05:00");
     expect(localIso(Date.parse("2026-01-15T18:00:00Z"))).toBe("2026-01-15T12:00:00-06:00");

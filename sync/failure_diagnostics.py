@@ -1,4 +1,3 @@
-"""Fixed-vocabulary diagnostics: never serialize an exception or its arguments."""
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
@@ -20,7 +19,6 @@ CATEGORIES = frozenset((
     "timeout", "http_4xx", "http_5xx", "http_other", "auth", "db", "parse",
     "transport", "unknown",
 ))
-# Python before 3.10 raises socket.timeout, which is not a TimeoutError.
 TIMEOUTS = (TimeoutError, socket.timeout, subprocess.TimeoutExpired)
 
 

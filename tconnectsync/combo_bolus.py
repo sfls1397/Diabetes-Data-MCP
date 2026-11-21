@@ -1,27 +1,3 @@
-"""Combo / extended bolus fields for tconnectsync 3.0.3 -> Nightscout.
-
-Stock tconnectsync uploads a combo bolus as two plain "Combo Bolus" treatments: the
-immediate dose when it completes, and (hours later) a separate insulin-only
-"Extended Bolus" entry. Nightscout then has no idea the two belong together.
-
-This module post-processes stock ProcessBolus output so a true combo/extended bolus
-is one treatment in the Care Portal shape, matching what the VM-era patch wrote:
-
-    insulin        immediate units delivered (Nightscout convention)
-    enteredinsulin total units requested (immediate + extended)
-    splitNow       immediate %    (Tandem LidBolusRequestedMsg2.standardPercent)
-    splitExt       extended %     (100 - splitNow)
-    duration       extension length, minutes (Msg2.duration)
-    relative       extended rate, units/hour: total * splitExt/100 / (duration/60)
-
-Standard boluses (100% now, or duration 0) are left exactly as stock writes them. When
-a bolus is a true combo, its later LidBolexCompleted entry is dropped so insulin is not
-counted twice in Nightscout IOB. If the request messages are missing, stock output is
-kept unchanged (fail open to the legacy two-entry form, never lose insulin).
-
-Pure Python 3.8+, duck-typed on the event `NAME` class attribute, so it is unit-testable
-without tconnectsync installed. See diabetes_tconnectsync.py for the runtime hook.
-"""
 import logging
 
 logger = logging.getLogger("diabetes.combo_bolus")
@@ -37,7 +13,6 @@ def _name(event):
 
 
 def combo_fields(msg2, msg3):
-    """Nightscout combo fields for a true combo/extended bolus, else None."""
     if msg2 is None or msg3 is None:
         return None
     pct = getattr(msg2, "standardPercent", None)
@@ -58,7 +33,6 @@ def combo_fields(msg2, msg3):
 
 
 class Index:
-    """Lookup tables over one batch of bolus events."""
 
     def __init__(self, events):
         self.completed_by_seq = {}
@@ -81,17 +55,12 @@ class Index:
                 self.combo_by_bolus[bolus_id] = fields
 
     def replaced_seqs(self):
-        """Pump sequence numbers of the stock entries a combo replaces:
-        (immediate-dose seqs, extended-completion seqs)."""
         now = {s for s, e in self.completed_by_seq.items() if e.bolusId in self.combo_by_bolus}
         ext = {s for s, e in self.bolex_by_seq.items() if e.bolusId in self.combo_by_bolus}
         return now, ext
 
 
 def apply_to_entries(entries, events):
-    """Return stock Nightscout entries with combo fields merged in and the redundant
-    extended-completion entries removed. `entries` is ProcessBolus.process output;
-    `events` is the same event batch it was given."""
     idx = Index(events)
     if not idx.combo_by_bolus:
         return list(entries)

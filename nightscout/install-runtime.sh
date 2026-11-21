@@ -1,11 +1,4 @@
 #!/bin/sh
-# Install or refresh the pinned runtime under ~/.diabetes-data/nightscout/runtime:
-#   MongoDB Community server (macOS arm64)   -> runtime/mongodb
-#   MongoDB Database Tools (mongodump/restore) -> runtime/mongotools
-#   Nightscout cgm-remote-monitor (git tag)  -> runtime/nightscout  (npm ci)
-# Downloads are verified against pinned sha256 values before unpacking.
-# Usage: sh nightscout/install-runtime.sh [/absolute/path/to/node]
-# Never reads or prints secrets.
 set -eu
 umask 077
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -27,7 +20,7 @@ RT=$HOME_DIR/runtime
 DL=$RT/downloads
 mkdir -p "$DL"
 
-fetch() { # url file sha256
+fetch() {
   if [ -f "$DL/$2" ] && echo "$3  $DL/$2" | shasum -a 256 -c - >/dev/null 2>&1; then
     echo "cached $2"
   else
@@ -46,7 +39,7 @@ fetch "https://fastdl.mongodb.org/tools/db/$TOOLS_ZIP" "$TOOLS_ZIP" "$TOOLS_SHA2
 if [ ! -x "$RT/mongodb-$MONGO_VERSION/bin/mongod" ]; then
   tmp=$(mktemp -d "$RT/.mongo.XXXXXX")
   tar xzf "$DL/$MONGO_TGZ" -C "$tmp"
-  mv "$tmp"/*/ "$RT/mongodb-$MONGO_VERSION"   # tarball dir is named mongodb-macos-aarch64--<ver>
+  mv "$tmp"/*/ "$RT/mongodb-$MONGO_VERSION"
   rmdir "$tmp"
 fi
 if [ ! -x "$RT/mongotools-$TOOLS_VERSION/bin/mongorestore" ]; then
@@ -58,8 +51,6 @@ fi
 ln -sfn "mongodb-$MONGO_VERSION" "$RT/mongodb"
 ln -sfn "mongotools-$TOOLS_VERSION" "$RT/mongotools"
 
-# The profile hash selects an immutable prepared runtime. An incomplete or failed
-# build never replaces the current runtime, and a future profile cannot reuse it.
 PROFILE_SHA=$({ cat "$SCRIPT_DIR"/runtime-profile/* "$SCRIPT_DIR"/compat/* "$SCRIPT_DIR/prepare-runtime.mjs" "$SCRIPT_DIR/sanitize-connect.mjs"; } | shasum -a 256 | cut -d' ' -f1)
 NS_NAME=nightscout-${NS_TAG#v}-$PROFILE_SHA
 NS_DIR=$RT/$NS_NAME

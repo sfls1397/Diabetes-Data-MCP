@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""Run tconnectsync with the combo-bolus mapping applied at import time.
-
-Used by tconnectsync/diabetes-tconnectsync instead of the stock console script. Nothing
-in site-packages is edited, so `pip install` can never silently drop the mapping; if the
-installed tconnectsync is not the pinned version the mapping is NOT applied and a loud
-WARNING is logged (uploads continue as stock).
-
-    diabetes_tconnectsync.py --combo-selftest   verify the hook loads, then exit
-    diabetes_tconnectsync.py --catch-up [tconnectsync args]
-        the hourly run: one day, or from the oldest pump-type watermark when that is
-        older (capped at CATCH_UP_MAX_DAYS), so a pump that stopped reporting to Tandem
-        Source heals once its backlog arrives
-    diabetes_tconnectsync.py [tconnectsync args]
-"""
 import logging
 import os
 import sys
@@ -23,7 +9,7 @@ from functools import wraps
 from io import StringIO
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import combo_bolus  # noqa: E402
+import combo_bolus
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sync"))
 from failure_diagnostics import category, http_category, report, staged
 
@@ -38,7 +24,6 @@ current_completion = ContextVar("diabetes_completion", default=None)
 
 
 class AuthLogFilter(logging.Filter):
-    """The upstream API logs decoded tokens and raw authentication responses."""
     def filter(self, record):
         if record.levelno < logging.WARNING:
             return False
@@ -61,7 +46,6 @@ class PumpLogFilter(logging.Filter):
 
 
 def install():
-    """Hook ProcessBolus.process. Returns True when the mapping is active."""
     from importlib.metadata import version
 
     installed = version("tconnectsync")
@@ -105,12 +89,6 @@ def startup():
 
 
 def catch_up_window(watermark, now, max_days=CATCH_UP_MAX_DAYS):
-    """Start of the hourly window, or None for the stock one day.
-
-    watermark is the oldest available per-type last-upload time, or None.
-    Each processor still skips events at or before its own last upload, so a wider
-    window re-sends nothing; it only lets a delayed Tandem backlog be fetched.
-    """
     if watermark is not None and watermark >= now - timedelta(days=1):
         return None
     floor = now - timedelta(days=max_days)
@@ -118,11 +96,6 @@ def catch_up_window(watermark, now, max_days=CATCH_UP_MAX_DAYS):
 
 
 def oldest_pump_watermark(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
-    """Oldest of the available per-type last-upload times, within max_days.
-
-    The date filter matters: a bare count= query only sees Nightscout's default
-    ~96 h window, which is exactly what a multi-day stall falls outside.
-    """
     from tconnectsync.parser.nightscout import BASAL_EVENTTYPE, BOLUS_EVENTTYPE
     import arrow
 
@@ -137,7 +110,6 @@ def oldest_pump_watermark(nightscout, now, max_days=CATCH_UP_MAX_DAYS):
 
 
 def catch_up_arguments(argv):
-    """Replace --catch-up with an offset-aware --start-date/--end-date window."""
     if CATCH_UP_FLAG not in argv[1:]:
         return argv
     rest = [argv[0]] + [item for item in argv[1:] if item != CATCH_UP_FLAG]
@@ -146,9 +118,7 @@ def catch_up_arguments(argv):
     from tconnectsync import secret
 
     zone = secret.TIMEZONE_NAME
-    now = arrow.utcnow()  # window math in UTC, so a DST change never shifts it an hour
-    # Never ignore_conn_errors here: an unreachable Nightscout would read as "no pump
-    # row" and silently widen the window to the 28-day floor. Fail the run instead.
+    now = arrow.utcnow()
     nightscout = NightscoutApi(secret.NS_URL, secret.NS_SECRET,
                                skip_verify=secret.NS_SKIP_TLS_VERIFY,
                                ignore_conn_errors=False)
