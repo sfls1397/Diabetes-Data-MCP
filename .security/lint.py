@@ -12,7 +12,7 @@ touch when main does not have that finding too.
   python3 .security/lint.py prune      drop baseline entries the code no longer has
   python3 .security/lint.py prune --resolved-only   the same, but every kept entry keeps its line field untouched
   python3 .security/lint.py counts     findings per tool and how many the baseline holds
-  python3 .security/lint.py counts --folders   comment lines per folder, for the cleanup parts
+  python3 .security/lint.py counts --folders   comment lines per folder and the biggest files
   python3 .security/lint.py baseline   write the first entries for a tool the baseline does not hold yet; never touches a held tool
 """
 import ast
